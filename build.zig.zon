@@ -2,12 +2,17 @@
     .name = .zig_gl_vk,
     .version = "0.16.0",
     .dependencies = .{
-        .vulkan_zig = .{
-            .path = "./vulkan-zig/",
-        },
         .args = .{
             .url = "https://github.com/muhammad-fiaz/args.zig/archive/refs/tags/0.0.7.tar.gz",
             .hash = "args-0.0.7-8hzgbvPiCAAcEM4R90pCppGhHBKi0Uiw90tbGvipjVfc",
+        },
+        .vulkan_headers = .{
+            .url = "git+https://github.com/KhronosGroup/Vulkan-Headers#8d6039a455a7ecc7d2a592ff97f62db4e59b70bf",
+            .hash = "N-V-__8AAPdJewI-Ti5p45KnTAAngGBG3aURyXJXXTKmPvKW",
+        },
+        .vulkan = .{
+            .url = "https://github.com/Snektron/vulkan-zig/archive/refs/heads/zig-0.16-compat.tar.gz",
+            .hash = "vulkan-0.0.0-r7Ytx7N9AwD7IZt5_XNHtkJ4G9qY0pCH-cpcOsbL8wzD",
         },
     },
     .paths = .{""},

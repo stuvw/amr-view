@@ -4,8 +4,8 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const vulkan = b.dependency("vulkan_zig", .{
-        .registry = b.path("./vulkan-zig/vk.xml"),
+    const vulkan = b.dependency("vulkan", .{
+        .registry = b.dependency("vulkan_headers", .{}).path("registry/vk.xml"),
     }).module("vulkan-zig");
 
     const args = b.dependency("args", .{
