@@ -7,7 +7,9 @@
 
 ## IMPROVEMENTS
 
-- double buffering
+- Say what the renderer is taking in as input, writing as output, etc.
+- Write the README.md
+- double buffering: rendering pipeline is being stalled by encoding.
 - video codec selection
 - root center / size configuration
 - .armv file improvement (simulation name, etc.)
@@ -17,6 +19,6 @@
 
 ## LATER
 
-- switch from restart SVO traversal to stack-bases approach
+- switch from restart SVO traversal to stack-based approach
 - multi-GPU support ?
 - make a fork that uses libavcodec to zero-copy encode on the GPU

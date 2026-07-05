@@ -34,16 +34,19 @@ pub fn main(init: std.process.Init) !void {
     try parser.addOption("colormap-file", .{
         .help = "Input colormap file",
         .value_type = .string,
+        .required = true,
     });
 
     try parser.addOption("path-file", .{
         .help = "Input camera path file",
         .value_type = .string,
+        .required = true,
     });
 
     try parser.addOption("data-file", .{
         .help = "Input simulation data file",
         .value_type = .string,
+        .required = true,
     });
 
     try parser.addOption("video-file", .{
@@ -100,19 +103,6 @@ pub fn main(init: std.process.Init) !void {
     const under_color = [4]f32{ 0.0, 0.0, 0.0, 1.0 };
     const over_color = [4]f32{ 1.0, 1.0, 1.0, 1.0 };
     const bad_color = [4]f32{ 0.0, 0.0, 0.0, 0.0 };
-
-    if (cmap_file == null) {
-        std.log.err("Colormap input file not specified (use --colormap-file <filename>)", .{});
-        return error.NoCmapInput;
-    }
-    if (path_file == null) {
-        std.log.err("Camera path input file not specified (use --path-file <filename>)", .{});
-        return error.NoCamInput;
-    }
-    if (data_file == null) {
-        std.log.err("Simulation data input file not specified (use --data-file <filename>)", .{});
-        return error.NoDataInput;
-    }
 
     const fov: f32 = 60.0;
 
@@ -206,25 +196,27 @@ pub fn main(init: std.process.Init) !void {
     // --------------------------- Data Upload & DMA Transfers -----------------------------------
     std.log.info("Uploading SVO to VRAM...", .{});
 
-    const color_ubo = Uniforms.ColormapInfo{
-        .min_val = min_val,
-        .max_val = max_val,
-        .under_color = under_color,
-        .over_color = over_color,
-        .bad_color = bad_color,
-    };
-    colormap_uniform.upload(std.mem.asBytes(&color_ubo));
+    {
+        const color_ubo = Uniforms.ColormapInfo{
+            .min_val = min_val,
+            .max_val = max_val,
+            .under_color = under_color,
+            .over_color = over_color,
+            .bad_color = bad_color,
+        };
+        colormap_uniform.upload(std.mem.asBytes(&color_ubo));
 
-    // User should be able to control this
-    const octree_ubo = Uniforms.OctreeInfo{
-        .root_pos = .{ 0, 0, 0 },
-        .root_size = 16.0,
-    };
-    octree_uniform.upload(std.mem.asBytes(&octree_ubo));
+        // User should be able to control this
+        const octree_ubo = Uniforms.OctreeInfo{
+            .root_pos = .{ 0, 0, 0 },
+            .root_size = 16.0,
+        };
+        octree_uniform.upload(std.mem.asBytes(&octree_ubo));
 
-    try cmap.upload(&ctx, command_buffer, io, cmap_file.?);
+        try cmap.upload(&ctx, command_buffer, io, cmap_file.?);
 
-    try svo.upload(&ctx, command_buffer, io, data_file.?);
+        try svo.upload(&ctx, command_buffer, io, data_file.?);
+    }
 
     // --------------------------- Initialize Video Stream -----------------------------------
     var proc = try Video.open_ffmpeg(init.io, frame_width, frame_height, framerate, video_file);

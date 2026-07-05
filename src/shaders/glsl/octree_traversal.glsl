@@ -1,6 +1,6 @@
 #version 460
 
-// Define the execution workgroup size (e.g., 8x8 pixel tiles)
+// Define the execution workgroup size
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 // --- Buffers and Images ---
@@ -20,7 +20,6 @@ layout(set = 0, binding = 3) uniform ColorInfo {
     float max_val;
 };
 
-// using vec4 here because of std140 alignment
 layout(set = 0, binding = 4) uniform CameraInfo {
     vec4 camera_pos;
     vec4 camera_dir;
@@ -62,15 +61,6 @@ uint find_octant_containing(vec3 ray_pos, vec3 node_pos) {
     return b.x | (b.y << 1u) | (b.z << 2u);
 }
 
-vec3 safe_inverse(vec3 d) {
-    // There might be a better way to do this using mix+max
-    return vec3(
-        d.x == 0.0 ? 1e9 : 1.0 / d.x,
-        d.y == 0.0 ? 1e9 : 1.0 / d.y,
-        d.z == 0.0 ? 1e9 : 1.0 / d.z
-    );
-}
-
 void main() {
     // 1. Determine target pixel and guard against out-of-bounds invocations
     ivec2 pixel_coords = ivec2(gl_GlobalInvocationID.xy);
@@ -88,7 +78,7 @@ void main() {
     ndc.y *= camera_fov;
     
     vec3 ray_dir = normalize(camera_dir.xyz + (ndc.x * camera_right.xyz) + (ndc.y * camera_up.xyz));
-    vec3 ray_inv_dir = safe_inverse(ray_dir);
+    vec3 ray_inv_dir = vec3(1.0) /  mix(ray_dir, vec3(1e-6), vec3(equal(ray_dir, vec3(0.0))));
     vec3 ray_origin = camera_pos.xyz;
 
     // 2. Initialize SVO Ray Tracing

@@ -57,7 +57,6 @@ pub fn open_ffmpeg(
     );
 }
 
-// FIXME: this function crashes at exit, because of a use after free (???)
 pub fn close_ffmpeg(
     process: *std.process.Child,
     io: Io,

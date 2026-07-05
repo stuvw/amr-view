@@ -21,7 +21,7 @@ pub fn createComputePipeline(
     layout: vk.PipelineLayout,
 ) !vk.Pipeline {
 
-    // ------------------------ Shader Modules -------------------------------------
+    // ------------------------ Shader Module -------------------------------------
     const shader_module = try ctx.dev.createShaderModule(&.{
         .code_size = shader_src.len,
         .p_code = @ptrCast(&shader_src),

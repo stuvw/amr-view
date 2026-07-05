@@ -3,7 +3,6 @@ const builtin = @import("builtin");
 const vk = @import("vulkan");
 const Allocator = std.mem.Allocator;
 
-// TODO: remove this on release lmao
 const required_layer_names = [_][*:0]const u8{"VK_LAYER_KHRONOS_validation"};
 
 const required_device_extensions = [_][*:0]const u8{};
@@ -144,16 +143,6 @@ pub const Context = struct {
     pub fn deviceName(self: *const Context) []const u8 {
         return std.mem.sliceTo(&self.props.device_name, 0);
     }
-
-    // pub fn findMemoryTypeIndex(self: Context, memory_type_bits: u32, flags: vk.MemoryPropertyFlags) !u32 {
-    //     for (self.mem_props.memory_types[0..self.mem_props.memory_type_count], 0..) |mem_type, i| {
-    //         if (memory_type_bits & (@as(u32, 1) << @truncate(i)) != 0 and mem_type.property_flags.contains(flags)) {
-    //             return @truncate(i);
-    //         }
-    //     }
-
-    //     return error.NoSuitableMemoryType;
-    // }
 
     pub fn findMemoryTypeIndex(self: Context, memory_type_bits: u32, flags: vk.MemoryPropertyFlags) !u32 {
         var best_idx: ?u32 = null;
