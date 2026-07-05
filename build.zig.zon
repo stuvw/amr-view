@@ -1,0 +1,15 @@
+.{
+    .name = .zig_gl_vk,
+    .version = "0.16.0",
+    .dependencies = .{
+        .vulkan_zig = .{
+            .path = "./vulkan-zig/",
+        },
+        .args = .{
+            .url = "https://github.com/muhammad-fiaz/args.zig/archive/refs/tags/0.0.7.tar.gz",
+            .hash = "args-0.0.7-8hzgbvPiCAAcEM4R90pCppGhHBKi0Uiw90tbGvipjVfc",
+        },
+    },
+    .paths = .{""},
+    .fingerprint = 0x61eec2f7d9e3fbed,
+}
