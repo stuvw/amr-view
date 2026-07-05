@@ -1,5 +1,5 @@
 .{
-    .name = .zig_gl_vk,
+    .name = .amr_view,
     .version = "0.16.0",
     .dependencies = .{
         .args = .{
@@ -16,5 +16,5 @@
         },
     },
     .paths = .{""},
-    .fingerprint = 0x61eec2f7d9e3fbed,
+    .fingerprint = 0xb012d22b4e3eb0ba,
 }
