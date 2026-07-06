@@ -67,6 +67,12 @@ pub fn main(init: std.process.Init) !void {
         .default = "1080",
     });
 
+    try parser.addOption("fov", .{
+        .help = "Output video FOV",
+        .value_type = .float,
+        .default = "60",
+    });
+
     try parser.addOption("framerate", .{
         .help = "Output video framerate",
         .value_type = .uint,
@@ -95,6 +101,7 @@ pub fn main(init: std.process.Init) !void {
 
     const frame_width: usize = result.getOrUint("width", 1920);
     const frame_height: usize = result.getOrUint("height", 1080);
+    const fov: f32 = @floatCast(result.getOrFloat("fov", 60));
     const framerate: usize = result.getOrUint("framerate", 30);
 
     const min_val: f32 = @floatCast(result.getOrFloat("min-val", -3.0));
@@ -103,8 +110,6 @@ pub fn main(init: std.process.Init) !void {
     const under_color = [4]f32{ 0.0, 0.0, 0.0, 1.0 };
     const over_color = [4]f32{ 1.0, 1.0, 1.0, 1.0 };
     const bad_color = [4]f32{ 0.0, 0.0, 0.0, 0.0 };
-
-    const fov: f32 = 60.0;
 
     // --------------------------- Initialize Vulkan -----------------------------------
     std.log.info("Initializing Vulkan...", .{});
@@ -184,7 +189,6 @@ pub fn main(init: std.process.Init) !void {
         &ctx,
         desc_pool,
         desc_layout,
-        svo.buffer,
         output_image.image_view,
         nearest_sampler,
         cmap.image_view,

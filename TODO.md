@@ -2,6 +2,7 @@
 
 ## BUGS
 
+- Cannot upload a dataset >4GiB -> use BDA -> remove buffer from descriptors
 - Actually handle errors ? Maybe ? You know...
 - colormaps cannot be more than 256. Need to update cmap size according to file size
 

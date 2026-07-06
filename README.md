@@ -86,6 +86,7 @@ The binary will be generated at `./zig-out/bin/amr-view` .
            --video-file export.mkv \
            --width 3840 \
            --height 2160 \
+           --fov 60 \
            --framerate 60 \
            --min-val -3.0 \
            --max-val 3.0
@@ -102,6 +103,7 @@ The binary will be generated at `./zig-out/bin/amr-view` .
 | --video-file | video.mp4 | Output video file |
 | --width | 1920 | Output video width |
 | --height | 1080 | Ouput video height |
+| --fov | 60 | Ouput video FOV |
 | --framerate | 60 | Output video frame rate |
 | --min-val | -3.0 | Underflow value |
 | --max-val | 3.0 | Overflow value |

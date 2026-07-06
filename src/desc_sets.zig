@@ -4,12 +4,11 @@ const Context = @import("./context.zig").Context;
 pub fn createDescriptorPool(ctx: *const Context) !vk.DescriptorPool {
     return try ctx.dev.createDescriptorPool(&.{
         .max_sets = 1,
-        .pool_size_count = 4,
+        .pool_size_count = 3,
         .p_pool_sizes = &[_]vk.DescriptorPoolSize{
             .{ .type = .uniform_buffer, .descriptor_count = 3 },
             .{ .type = .combined_image_sampler, .descriptor_count = 1 },
             .{ .type = .storage_image, .descriptor_count = 1 },
-            .{ .type = .storage_buffer, .descriptor_count = 1 },
         },
     }, null);
 }
@@ -20,40 +19,34 @@ pub fn destroyDescriptorPool(ctx: *const Context, desc_pool: vk.DescriptorPool) 
 
 pub fn createDescriptorSetLayout(ctx: *const Context) !vk.DescriptorSetLayout {
     return try ctx.dev.createDescriptorSetLayout(&.{
-        .binding_count = 6,
+        .binding_count = 5,
         .p_bindings = &[_]vk.DescriptorSetLayoutBinding{
             .{
-                .binding = 0, // SVO buffer
-                .descriptor_type = .storage_buffer,
-                .descriptor_count = 1,
-                .stage_flags = .{ .compute_bit = true },
-            },
-            .{
-                .binding = 1, // output image
+                .binding = 0, // output image
                 .descriptor_type = .storage_image,
                 .descriptor_count = 1,
                 .stage_flags = .{ .compute_bit = true },
             },
             .{
-                .binding = 2, // colormap image
+                .binding = 1, // colormap image
                 .descriptor_type = .combined_image_sampler,
                 .descriptor_count = 1,
                 .stage_flags = .{ .compute_bit = true },
             },
             .{
-                .binding = 3, // ColorInfo parameters
+                .binding = 2, // ColorInfo parameters
                 .descriptor_type = .uniform_buffer,
                 .descriptor_count = 1,
                 .stage_flags = .{ .compute_bit = true },
             },
             .{
-                .binding = 4, // CameraInfo parameters
+                .binding = 3, // CameraInfo parameters
                 .descriptor_type = .uniform_buffer,
                 .descriptor_count = 1,
                 .stage_flags = .{ .compute_bit = true },
             },
             .{
-                .binding = 5, // OctreeInfo parameters
+                .binding = 4, // OctreeInfo parameters
                 .descriptor_type = .uniform_buffer,
                 .descriptor_count = 1,
                 .stage_flags = .{ .compute_bit = true },
@@ -70,7 +63,6 @@ pub fn updateDescriptorSets(
     ctx: *const Context,
     desc_pool: vk.DescriptorPool,
     desc_layout: vk.DescriptorSetLayout,
-    svo_buffer: vk.Buffer,
     output_image: vk.ImageView,
     nearest_sampler: vk.Sampler,
     cmap_image: vk.ImageView,
@@ -86,7 +78,6 @@ pub fn updateDescriptorSets(
     }, &sets);
     const set = sets[0];
 
-    const svo_buffer_info = vk.DescriptorBufferInfo{ .buffer = svo_buffer, .offset = 0, .range = vk.WHOLE_SIZE };
     const output_image_info = vk.DescriptorImageInfo{ .image_view = output_image, .image_layout = .general, .sampler = .null_handle };
     const cmap_image_info = vk.DescriptorImageInfo{ .sampler = nearest_sampler, .image_view = cmap_image, .image_layout = .shader_read_only_optimal };
     const color_buffer_info = vk.DescriptorBufferInfo{ .buffer = color_info_buffer, .offset = 0, .range = vk.WHOLE_SIZE };
@@ -94,19 +85,9 @@ pub fn updateDescriptorSets(
     const octree_buffer_info = vk.DescriptorBufferInfo{ .buffer = octree_info_buffer, .offset = 0, .range = vk.WHOLE_SIZE };
 
     ctx.dev.updateDescriptorSets(&[_]vk.WriteDescriptorSet{
-        .{ // Binding 0: Octree SSBO
+        .{ // Binding 0: Output Storage Image (writeonly image2D)
             .dst_set = set,
             .dst_binding = 0,
-            .dst_array_element = 0,
-            .descriptor_count = 1,
-            .descriptor_type = .storage_buffer,
-            .p_buffer_info = &.{svo_buffer_info},
-            .p_image_info = &.{},
-            .p_texel_buffer_view = &.{},
-        },
-        .{ // Binding 1: Output Storage Image (writeonly image2D)
-            .dst_set = set,
-            .dst_binding = 1,
             .dst_array_element = 0,
             .descriptor_count = 1,
             .descriptor_type = .storage_image,
@@ -114,9 +95,9 @@ pub fn updateDescriptorSets(
             .p_buffer_info = &.{},
             .p_texel_buffer_view = &.{},
         },
-        .{ // Binding 2: Colormap Texture (sampler2D)
+        .{ // Binding 1: Colormap Texture (sampler2D)
             .dst_set = set,
-            .dst_binding = 2,
+            .dst_binding = 1,
             .dst_array_element = 0,
             .descriptor_count = 1,
             .descriptor_type = .combined_image_sampler,
@@ -124,9 +105,9 @@ pub fn updateDescriptorSets(
             .p_buffer_info = &.{},
             .p_texel_buffer_view = &.{},
         },
-        .{ // Binding 3: ColorInfo Uniform
+        .{ // Binding 2: ColorInfo Uniform
             .dst_set = set,
-            .dst_binding = 3,
+            .dst_binding = 2,
             .dst_array_element = 0,
             .descriptor_count = 1,
             .descriptor_type = .uniform_buffer,
@@ -134,9 +115,9 @@ pub fn updateDescriptorSets(
             .p_image_info = &.{},
             .p_texel_buffer_view = &.{},
         },
-        .{ // Binding 4: CameraInfo Uniform
+        .{ // Binding 3: CameraInfo Uniform
             .dst_set = set,
-            .dst_binding = 4,
+            .dst_binding = 3,
             .dst_array_element = 0,
             .descriptor_count = 1,
             .descriptor_type = .uniform_buffer,
@@ -144,9 +125,9 @@ pub fn updateDescriptorSets(
             .p_image_info = &.{},
             .p_texel_buffer_view = &.{},
         },
-        .{ // Binding 5: OctreeInfo Uniform
+        .{ // Binding 4: OctreeInfo Uniform
             .dst_set = set,
-            .dst_binding = 5,
+            .dst_binding = 4,
             .dst_array_element = 0,
             .descriptor_count = 1,
             .descriptor_type = .uniform_buffer,

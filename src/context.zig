@@ -226,13 +226,13 @@ fn initializeCandidate(instance: Instance, candidate: DeviceCandidate) !vk.Devic
 
     const queue_count: u32 = 1;
 
-    var features = vk.PhysicalDeviceVulkan12Features{
+    var vk_12_features = vk.PhysicalDeviceVulkan12Features{
         .buffer_device_address = .true,
     };
 
     var dev_features = vk.PhysicalDeviceFeatures2{
         .features = .{},
-        .p_next = &features,
+        .p_next = &vk_12_features,
     };
 
     return try instance.createDevice(candidate.pdev, &.{
