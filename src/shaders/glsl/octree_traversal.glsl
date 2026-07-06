@@ -1,10 +1,11 @@
 #version 460
+#extension GL_EXT_buffer_reference : require
 
 // Define the execution workgroup size
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 // --- Buffers and Images ---
-layout(std430, set = 0, binding = 0) buffer Octree {
+layout(buffer_reference, std430, set = 0, binding = 0) readonly buffer Octree {
     uvec2 nodes[];
 };
 
@@ -30,6 +31,7 @@ layout(set = 0, binding = 4) uniform CameraInfo {
 
 layout(set = 0, binding = 5) uniform OctreeInfo {
     vec4 root_pos; // pos + size
+    Octree octree_ptr;
 };
 
 // --- Helper Functions ---
@@ -117,7 +119,7 @@ void main() {
             vec3 sub_min = node_pos - vec3(node_size * 0.5);
             vec3 sub_max = node_pos + vec3(node_size * 0.5);
 
-            uvec2 raw = nodes[node_idx];
+            uvec2 raw = octree_ptr.nodes[node_idx];
             uint child_idx = raw.x;
             uint child_mask = raw.y;
 
@@ -135,7 +137,7 @@ void main() {
             uint type_bit = (child_mask >> (octant + 8u)) & 1u;
 
             if (type_bit == 1u) {
-                uvec2 leaf_raw = nodes[target_idx];
+                uvec2 leaf_raw = octree_ptr.nodes[target_idx];
 
                 float t_exit = get_exit_t(ray_origin, ray_inv_dir, sub_min, sub_max);
                 float dt = t_exit - t;

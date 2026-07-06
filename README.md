@@ -4,8 +4,6 @@ GPU-accelerated volume renderer for large particle/AMR (Adaptive Mesh Refinement
 
 Since `amr-view` relies entirely on compute shaders rather than a traditional rasterization pipeline, it can run headlessly on server-grade hardware (e.g., NVIDIA H100) without a display attached.
 
----
-
 ## How It Works
 
 The renderer processes datasets by representing each data point as a leaf node in a custom SVO. Frame generation happens in a two-stage pipeline:
@@ -13,7 +11,7 @@ The renderer processes datasets by representing each data point as a leaf node i
 ### Stage 1: Depth Accumulation
 For each pixel, a ray is cast from the camera origin. As the ray traverses the SVO, it accumulates column density and weight across every intersected leaf node using the following formulas:
 
-$$ray\_qty += \frac{qty \cdot w}{dx^2} \cdot dt$$
+$$ray\_{qty} += \frac{qty \cdot w}{dx^2} \cdot dt$$
 
 $$ray\_w += \frac{w}{dx^2} \cdot dt$$
 
@@ -26,13 +24,11 @@ Where:
 ### Stage 2: Tone Mapping
 Once the ray exits the root node, the depth-weighted mean of the quantity field is calculated using a base-10 logarithm:
 
-$$\log_{10}\left(\frac{ray\_qty}{ray\_w}\right)$$
+$$\log_{10}\left(\frac{ray\_{qty}}{ray\_w}\right)$$
 
 This value is mapped through a user-specified 256-color RGBA colormap (supporting custom underflow, overflow, and error colors) and written to the final frame.
 
 *Note: Frames are streamed directly to FFmpeg in real time. Double buffering is planned to decouple GPU rendering from video encoding.*
-
----
 
 ## Data format
 
@@ -50,7 +46,7 @@ A plain text file where each line defines a camera state using 9 space-separated
 
 ### Colormap format
 
-A binary file containing 256 structural RGBA byte-quartets (1024 bytes total). You can generate compatible colormaps from matplotlib profiles using [python script](./tools/create_colormap.py). You can also make your own, whacky one, with rainbows and everything :) .
+A binary file containing 256 structural RGBA byte-quartets (1024 bytes total). You can generate compatible colormaps from matplotlib profiles using the following [python script](./tools/create_colormap.py). You can also make your own, whacky one, with rainbows and everything :) .
 
 ## Dependencies / Requirements
 

@@ -15,6 +15,7 @@ pub const ColormapInfo = extern struct {
 pub const OctreeInfo = extern struct {
     root_pos: [3]f32,
     root_size: f32,
+    ptr: u64,
 };
 
 // std140 aligned uniform block for camera uniform binding

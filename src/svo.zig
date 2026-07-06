@@ -34,17 +34,23 @@ pub const SVOBuffer = struct {
     size: usize,
     buffer: vk.Buffer,
     memory: vk.DeviceMemory,
+    ptr: u64,
 
     pub fn create(self: *@This(), ctx: *const Context, num_nodes: usize) !void {
         self.size = num_nodes * @sizeOf(OctreeNode);
         self.buffer = try ctx.dev.createBuffer(&.{
             .size = self.size,
-            .usage = .{ .transfer_dst_bit = true, .storage_buffer_bit = true },
+            .usage = .{
+                .transfer_dst_bit = true,
+                .storage_buffer_bit = true,
+                .shader_device_address_bit = true,
+            },
             .sharing_mode = .exclusive,
         }, null);
         const mem_reqs = ctx.dev.getBufferMemoryRequirements(self.buffer);
-        self.memory = try ctx.allocate(mem_reqs, .{ .device_local_bit = true });
+        self.memory = try ctx.allocate_bda(mem_reqs, .{ .device_local_bit = true });
         try ctx.dev.bindBufferMemory(self.buffer, self.memory, 0);
+        self.ptr = ctx.dev.getBufferDeviceAddress(&.{ .buffer = self.buffer });
     }
 
     pub fn destroy(self: *@This(), ctx: *const Context) void {

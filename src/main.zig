@@ -197,6 +197,10 @@ pub fn main(init: std.process.Init) !void {
     std.log.info("Uploading SVO to VRAM...", .{});
 
     {
+        try svo.upload(&ctx, command_buffer, io, data_file.?);
+
+        try cmap.upload(&ctx, command_buffer, io, cmap_file.?);
+
         const color_ubo = Uniforms.ColormapInfo{
             .min_val = min_val,
             .max_val = max_val,
@@ -210,12 +214,9 @@ pub fn main(init: std.process.Init) !void {
         const octree_ubo = Uniforms.OctreeInfo{
             .root_pos = .{ 0, 0, 0 },
             .root_size = 16.0,
+            .ptr = svo.ptr,
         };
         octree_uniform.upload(std.mem.asBytes(&octree_ubo));
-
-        try cmap.upload(&ctx, command_buffer, io, cmap_file.?);
-
-        try svo.upload(&ctx, command_buffer, io, data_file.?);
     }
 
     // --------------------------- Initialize Video Stream -----------------------------------

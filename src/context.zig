@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 const vk = @import("vulkan");
 const Allocator = std.mem.Allocator;
 
+// TODO: remove validation layers on release
 const required_layer_names = [_][*:0]const u8{"VK_LAYER_KHRONOS_validation"};
 
 const required_device_extensions = [_][*:0]const u8{};
@@ -171,6 +172,19 @@ pub const Context = struct {
             .memory_type_index = try self.findMemoryTypeIndex(requirements.memory_type_bits, flags),
         }, null);
     }
+
+    pub fn allocate_bda(self: Context, requirements: vk.MemoryRequirements, flags: vk.MemoryPropertyFlags) !vk.DeviceMemory {
+        return try self.dev.allocateMemory(&.{
+            .allocation_size = requirements.size,
+            .memory_type_index = try self.findMemoryTypeIndex(requirements.memory_type_bits, flags),
+            .p_next = &vk.MemoryAllocateFlagsInfo{
+                .device_mask = 0,
+                .flags = .{
+                    .device_address_bit = true,
+                },
+            },
+        }, null);
+    }
 };
 
 fn checkLayerSupport(vkb: *const BaseWrapper, alloc: Allocator) !bool {
@@ -212,6 +226,15 @@ fn initializeCandidate(instance: Instance, candidate: DeviceCandidate) !vk.Devic
 
     const queue_count: u32 = 1;
 
+    var features = vk.PhysicalDeviceVulkan12Features{
+        .buffer_device_address = .true,
+    };
+
+    var dev_features = vk.PhysicalDeviceFeatures2{
+        .features = .{},
+        .p_next = &features,
+    };
+
     return try instance.createDevice(candidate.pdev, &.{
         .queue_create_info_count = queue_count,
         .p_queue_create_infos = &qci,
@@ -219,6 +242,7 @@ fn initializeCandidate(instance: Instance, candidate: DeviceCandidate) !vk.Devic
         .pp_enabled_extension_names = @ptrCast(&required_device_extensions),
         .enabled_layer_count = 0,
         .pp_enabled_layer_names = null, // Shader validation was complaining
+        .p_next = &dev_features,
     }, null);
 }
 
