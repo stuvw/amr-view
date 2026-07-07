@@ -94,26 +94,28 @@ for chunk in tqdm(box.chunks([field, weight], "io"), desc="Processing dataset ch
     field_data = np.nan_to_num(field_data, nan=0.0, posinf=F32_MAX, neginf=F32_MIN)
     weight_data = np.nan_to_num(weight_data, nan=0.0, posinf=F32_MAX, neginf=F32_MIN)
 
+    rx, ry, rz = root_center[0], root_center[1], root_center[2]
+
     for i in range(len(cx_arr)):
         cx, cy, cz = cx_arr[i], cy_arr[i], cz_arr[i]
         dx = dx_arr[i]
         qty = field_data[i]
         w = weight_data[i]
 
-        max_qty = max(qty, max_qty)
-        max_w = max(w, max_w)
-        
+        if qty > max_qty: max_qty = qty
+        if w > max_w: max_w = w
+ 
         curr_node = svo_root
-        curr_center = np.copy(root_center)
+ 
+        ccx, ccy, ccz = rx, ry, rz 
         curr_size = root_size
-        
         depth = 0
 
         while curr_size > (dx * 1.001):
             octant = 0
-            if cx >= curr_center[0]: octant |= 1
-            if cy >= curr_center[1]: octant |= 2
-            if cz >= curr_center[2]: octant |= 4
+            if cx >= ccx: octant |= 1
+            if cy >= ccy: octant |= 2
+            if cz >= ccz: octant |= 4
             
             # Lazily initialize children arrays only when a node becomes a branch
             if curr_node.children is None:
@@ -122,18 +124,19 @@ for chunk in tqdm(box.chunks([field, weight], "io"), desc="Processing dataset ch
             if curr_node.children[octant] is None:
                 curr_node.children[octant] = SVOBuilderNode()
                 
-            curr_size /= 2.0
+            curr_size *= 0.5
             depth += 1
-            max_depth = max(depth, max_depth)
 
-            offset = np.array([
-                0.5 if (octant & 1) else -0.5,
-                0.5 if (octant & 2) else -0.5,
-                0.5 if (octant & 4) else -0.5
-            ])
-            curr_center += offset * curr_size
+            half_size = curr_size * 0.5
+            ccx += half_size  if (octant & 1) else -half_size
+            ccy += half_size if (octant & 2) else -half_size
+            ccz += half_size if (octant & 4) else -half_size
+
             curr_node = curr_node.children[octant]
             
+        
+        max_depth = max(depth, max_depth)
+
         curr_node.is_leaf = True
         curr_node.qty = qty
         curr_node.w = w

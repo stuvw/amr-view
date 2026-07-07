@@ -3,8 +3,12 @@ const builtin = @import("builtin");
 const vk = @import("vulkan");
 const Allocator = std.mem.Allocator;
 
-// TODO: remove validation layers on release
-const required_layer_names = [_][*:0]const u8{"VK_LAYER_KHRONOS_validation"};
+const enable_validation_layers = switch (builtin.mode) {
+    .Debug, .ReleaseSafe => true,
+    .ReleaseFast, .ReleaseSmall => false,
+};
+
+const required_layer_names = if (enable_validation_layers) [_][*:0]const u8{"VK_LAYER_KHRONOS_validation"} else [_][*:0]const u8{};
 
 const required_device_extensions = [_][*:0]const u8{};
 

@@ -12,26 +12,19 @@ layout(buffer_reference, std430) readonly buffer Octree {
 layout(rgba8, set = 0, binding = 0) writeonly uniform image2D out_image;
 layout(set = 0, binding = 1) uniform sampler2D colormap_tex;
 
-// --- Uniform Buffers ---
-layout(set = 0, binding = 2) uniform ColorInfo {
-    vec4 under_color;
-    vec4 over_color;
-    vec4 bad_color;
-    float min_val;
-    float max_val;
-};
-
-layout(set = 0, binding = 3) uniform CameraInfo {
+layout(push_constant) uniform Constants {
     vec4 camera_pos;
     vec4 camera_dir;
     vec4 camera_right;
     vec4 camera_up;
-    float camera_fov;
-};
-
-layout(set = 0, binding = 4) uniform OctreeInfo {
     vec4 root_pos; // pos + size
+    vec4 under_color;
+    vec4 over_color;
+    vec4 bad_color;
     Octree octree_ptr;
+    float camera_fov;
+    float min_val;
+    float max_val;
 };
 
 // --- Helper Functions ---

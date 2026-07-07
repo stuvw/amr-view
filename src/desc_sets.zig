@@ -4,9 +4,8 @@ const Context = @import("./context.zig").Context;
 pub fn createDescriptorPool(ctx: *const Context) !vk.DescriptorPool {
     return try ctx.dev.createDescriptorPool(&.{
         .max_sets = 1,
-        .pool_size_count = 3,
+        .pool_size_count = 2,
         .p_pool_sizes = &[_]vk.DescriptorPoolSize{
-            .{ .type = .uniform_buffer, .descriptor_count = 3 },
             .{ .type = .combined_image_sampler, .descriptor_count = 1 },
             .{ .type = .storage_image, .descriptor_count = 1 },
         },
@@ -19,7 +18,7 @@ pub fn destroyDescriptorPool(ctx: *const Context, desc_pool: vk.DescriptorPool) 
 
 pub fn createDescriptorSetLayout(ctx: *const Context) !vk.DescriptorSetLayout {
     return try ctx.dev.createDescriptorSetLayout(&.{
-        .binding_count = 5,
+        .binding_count = 2,
         .p_bindings = &[_]vk.DescriptorSetLayoutBinding{
             .{
                 .binding = 0, // output image
@@ -30,24 +29,6 @@ pub fn createDescriptorSetLayout(ctx: *const Context) !vk.DescriptorSetLayout {
             .{
                 .binding = 1, // colormap image
                 .descriptor_type = .combined_image_sampler,
-                .descriptor_count = 1,
-                .stage_flags = .{ .compute_bit = true },
-            },
-            .{
-                .binding = 2, // ColorInfo parameters
-                .descriptor_type = .uniform_buffer,
-                .descriptor_count = 1,
-                .stage_flags = .{ .compute_bit = true },
-            },
-            .{
-                .binding = 3, // CameraInfo parameters
-                .descriptor_type = .uniform_buffer,
-                .descriptor_count = 1,
-                .stage_flags = .{ .compute_bit = true },
-            },
-            .{
-                .binding = 4, // OctreeInfo parameters
-                .descriptor_type = .uniform_buffer,
                 .descriptor_count = 1,
                 .stage_flags = .{ .compute_bit = true },
             },
@@ -66,9 +47,6 @@ pub fn updateDescriptorSets(
     output_image: vk.ImageView,
     nearest_sampler: vk.Sampler,
     cmap_image: vk.ImageView,
-    color_info_buffer: vk.Buffer,
-    camera_info_buffer: vk.Buffer,
-    octree_info_buffer: vk.Buffer,
 ) !vk.DescriptorSet {
     var sets: [1]vk.DescriptorSet = undefined;
     try ctx.dev.allocateDescriptorSets(&.{
@@ -80,9 +58,6 @@ pub fn updateDescriptorSets(
 
     const output_image_info = vk.DescriptorImageInfo{ .image_view = output_image, .image_layout = .general, .sampler = .null_handle };
     const cmap_image_info = vk.DescriptorImageInfo{ .sampler = nearest_sampler, .image_view = cmap_image, .image_layout = .shader_read_only_optimal };
-    const color_buffer_info = vk.DescriptorBufferInfo{ .buffer = color_info_buffer, .offset = 0, .range = vk.WHOLE_SIZE };
-    const camera_buffer_info = vk.DescriptorBufferInfo{ .buffer = camera_info_buffer, .offset = 0, .range = vk.WHOLE_SIZE };
-    const octree_buffer_info = vk.DescriptorBufferInfo{ .buffer = octree_info_buffer, .offset = 0, .range = vk.WHOLE_SIZE };
 
     ctx.dev.updateDescriptorSets(&[_]vk.WriteDescriptorSet{
         .{ // Binding 0: Output Storage Image (writeonly image2D)
@@ -103,36 +78,6 @@ pub fn updateDescriptorSets(
             .descriptor_type = .combined_image_sampler,
             .p_image_info = &.{cmap_image_info},
             .p_buffer_info = &.{},
-            .p_texel_buffer_view = &.{},
-        },
-        .{ // Binding 2: ColorInfo Uniform
-            .dst_set = set,
-            .dst_binding = 2,
-            .dst_array_element = 0,
-            .descriptor_count = 1,
-            .descriptor_type = .uniform_buffer,
-            .p_buffer_info = &.{color_buffer_info},
-            .p_image_info = &.{},
-            .p_texel_buffer_view = &.{},
-        },
-        .{ // Binding 3: CameraInfo Uniform
-            .dst_set = set,
-            .dst_binding = 3,
-            .dst_array_element = 0,
-            .descriptor_count = 1,
-            .descriptor_type = .uniform_buffer,
-            .p_buffer_info = &.{camera_buffer_info},
-            .p_image_info = &.{},
-            .p_texel_buffer_view = &.{},
-        },
-        .{ // Binding 4: OctreeInfo Uniform
-            .dst_set = set,
-            .dst_binding = 4,
-            .dst_array_element = 0,
-            .descriptor_count = 1,
-            .descriptor_type = .uniform_buffer,
-            .p_buffer_info = &.{octree_buffer_info},
-            .p_image_info = &.{},
             .p_texel_buffer_view = &.{},
         },
     }, &.{});

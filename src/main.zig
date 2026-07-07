@@ -9,7 +9,7 @@ const Colormap = @import("./colormap.zig");
 const Sampler = @import("./sampler.zig");
 const Descriptor = @import("./desc_sets.zig");
 const Commands = @import("./commands.zig");
-const Uniforms = @import("./uniform_buffers.zig");
+const Constants = @import("./push_constants.zig");
 const SVO = @import("./svo.zig");
 const Video = @import("./video.zig");
 const Path = @import("./path.zig");
@@ -111,6 +111,9 @@ pub fn main(init: std.process.Init) !void {
     const over_color = [4]f32{ 1.0, 1.0, 1.0, 1.0 };
     const bad_color = [4]f32{ 0.0, 0.0, 0.0, 0.0 };
 
+    const root_pos = [3]f32{ 0.0, 0.0, 0.0 };
+    const root_size: f32 = 16.0;
+
     // --------------------------- Initialize Vulkan -----------------------------------
     std.log.info("Initializing Vulkan...", .{});
 
@@ -138,22 +141,6 @@ pub fn main(init: std.process.Init) !void {
     const nearest_sampler = try Sampler.createSampler(&ctx);
     defer Sampler.destroySampler(&ctx, nearest_sampler);
 
-    // --------------------------- Static Uniform Buffers -----------------------------------
-
-    var octree_uniform: Uniforms.UniformBuffer = undefined;
-    try octree_uniform.create(&ctx, Uniforms.OctreeInfo);
-    defer octree_uniform.destroy(&ctx);
-
-    var colormap_uniform: Uniforms.UniformBuffer = undefined;
-    try colormap_uniform.create(&ctx, Uniforms.ColormapInfo);
-    defer colormap_uniform.destroy(&ctx);
-
-    // --------------------------- Dynamic Uniform Buffers -----------------------------------
-
-    var camera_uniform: Uniforms.UniformBuffer = undefined;
-    try camera_uniform.create(&ctx, Uniforms.CameraInfo);
-    defer camera_uniform.destroy(&ctx);
-
     // --------------------------- Sparse Voxel Octree -----------------------------------
 
     const metadata = try SVO.getSVOMetadata(io, data_file.?);
@@ -172,7 +159,7 @@ pub fn main(init: std.process.Init) !void {
 
     // --------------------------- Pipelines & Layouts -----------------------------------
 
-    const pipeline_layout = try Pipeline.createPipelineLayout(&ctx, desc_layout);
+    const pipeline_layout = try Pipeline.createPipelineLayout(&ctx, desc_layout, @sizeOf(Constants.PushConstant));
     defer Pipeline.destroyPipelineLayout(&ctx, pipeline_layout);
 
     const pipeline = try Pipeline.createComputePipeline(&ctx, pipeline_layout);
@@ -192,36 +179,34 @@ pub fn main(init: std.process.Init) !void {
         output_image.image_view,
         nearest_sampler,
         cmap.image_view,
-        colormap_uniform.buffer,
-        camera_uniform.buffer,
-        octree_uniform.buffer,
     );
 
     // --------------------------- Data Upload & DMA Transfers -----------------------------------
     std.log.info("Uploading SVO to VRAM...", .{});
 
-    {
-        try svo.upload(&ctx, command_buffer, io, data_file.?);
+    try svo.upload(&ctx, command_buffer, io, data_file.?);
 
-        try cmap.upload(&ctx, command_buffer, io, cmap_file.?);
+    try cmap.upload(&ctx, command_buffer, io, cmap_file.?);
 
-        const color_ubo = Uniforms.ColormapInfo{
-            .min_val = min_val,
-            .max_val = max_val,
-            .under_color = under_color,
-            .over_color = over_color,
-            .bad_color = bad_color,
-        };
-        colormap_uniform.upload(std.mem.asBytes(&color_ubo));
+    // --------------------------- Data Upload & DMA Transfers -----------------------------------
 
-        // User should be able to control this
-        const octree_ubo = Uniforms.OctreeInfo{
-            .root_pos = .{ 0, 0, 0 },
-            .root_size = 16.0,
-            .ptr = svo.ptr,
-        };
-        octree_uniform.upload(std.mem.asBytes(&octree_ubo));
-    }
+    var push_constants = Constants.PushConstant{
+        // Camera info
+        .camera_pos = undefined,
+        .camera_dir = undefined,
+        .camera_right = undefined,
+        .camera_up = undefined,
+        .camera_fov = std.math.tan(std.math.degreesToRadians(fov) / 2.0),
+        // Colormap info
+        .under_color = under_color,
+        .over_color = over_color,
+        .bad_color = bad_color,
+        .min_val = min_val,
+        .max_val = max_val,
+        // Octree info
+        .root_pos = .{ root_pos[0], root_pos[1], root_pos[2], root_size },
+        .octree_ptr = svo.ptr,
+    };
 
     // --------------------------- Initialize Video Stream -----------------------------------
     var proc = try Video.open_ffmpeg(init.io, frame_width, frame_height, framerate, video_file);
@@ -237,25 +222,30 @@ pub fn main(init: std.process.Init) !void {
     for (frames, 0..) |frame, i| {
         const gpu_start = std.Io.Clock.awake.now(io);
 
-        // 1. Update Camera Uniforms for the current frame
+        // 1. Update Camera Info for the current frame
         const cam_pos = frame[0..3].*;
         const cam_dir = frame[3..6].*;
         const cam_up = frame[6..9].*;
         const cam_right = Math.cross(cam_dir, cam_up);
 
-        const camera_ubo = Uniforms.CameraInfo{
-            .camera_pos = [4]f32{ cam_pos[0], cam_pos[1], cam_pos[2], 0.0 },
-            .camera_dir = [4]f32{ cam_dir[0], cam_dir[1], cam_dir[2], 0.0 },
-            .camera_right = [4]f32{ cam_right[0], cam_right[1], cam_right[2], 0.0 },
-            .camera_up = [4]f32{ cam_up[0], cam_up[1], cam_up[2], 0.0 },
-            .camera_fov = std.math.tan(std.math.degreesToRadians(fov) / 2.0),
-        };
-        camera_uniform.upload(std.mem.asBytes(&camera_ubo));
+        push_constants.camera_pos = .{ cam_pos[0], cam_pos[1], cam_pos[2], 0.0 };
+        push_constants.camera_dir = .{ cam_dir[0], cam_dir[1], cam_dir[2], 0.0 };
+        push_constants.camera_right = .{ cam_right[0], cam_right[1], cam_right[2], 0.0 };
+        push_constants.camera_up = .{ cam_up[0], cam_up[1], cam_up[2], 0.0 };
 
         // 2. Start Recording Commands
         try ctx.dev.beginCommandBuffer(command_buffer, &.{
             .flags = .{ .one_time_submit_bit = true },
         });
+
+        ctx.dev.cmdPushConstants(
+            command_buffer,
+            pipeline_layout,
+            .{ .compute_bit = true },
+            0,
+            @sizeOf(Constants.PushConstant),
+            @ptrCast(&push_constants),
+        );
 
         // BARRIER 1: Prepare output image layout for Compute Writing
         const barrier_to_compute = vk.ImageMemoryBarrier{

@@ -5,10 +5,18 @@ const Context = @import("context.zig").Context;
 // Ensure compiled SPIR-V bytecode is correctly aligned for Vulkan's ingestion
 const shader_src align(@alignOf(u32)) = @embedFile("./shaders/spirv/octree_traversal.spv").*;
 
-pub fn createPipelineLayout(ctx: *const Context, desc_layout: vk.DescriptorSetLayout) !vk.PipelineLayout {
+pub fn createPipelineLayout(ctx: *const Context, desc_layout: vk.DescriptorSetLayout, pc_size: u32) !vk.PipelineLayout {
     return try ctx.dev.createPipelineLayout(&.{
         .set_layout_count = 1,
         .p_set_layouts = &.{desc_layout},
+        .push_constant_range_count = 1,
+        .p_push_constant_ranges = &.{
+            vk.PushConstantRange{
+                .stage_flags = .{ .compute_bit = true },
+                .offset = 0,
+                .size = pc_size,
+            },
+        },
     }, null);
 }
 
