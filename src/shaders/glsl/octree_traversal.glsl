@@ -1,5 +1,7 @@
 #version 460
 #extension GL_EXT_buffer_reference : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+#extension GL_EXT_shader_64bit_indexing : require
 
 // Define the execution workgroup size
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
@@ -13,10 +15,10 @@ layout(rgba8, set = 0, binding = 0) writeonly uniform image2D out_image;
 layout(set = 0, binding = 1) uniform sampler2D colormap_tex;
 
 layout(push_constant) uniform Constants {
-    vec4 camera_pos;
-    vec4 camera_dir;
-    vec4 camera_right;
-    vec4 camera_up;
+    vec3 camera_pos;
+    vec3 camera_dir;
+    vec3 camera_right;
+    vec3 camera_up;
     vec4 root_pos; // pos + size
     vec4 under_color;
     vec4 over_color;
@@ -72,9 +74,9 @@ void main() {
     ndc.x *= aspect * camera_fov;
     ndc.y *= camera_fov;
     
-    vec3 ray_dir = normalize(camera_dir.xyz + (ndc.x * camera_right.xyz) + (ndc.y * camera_up.xyz));
+    vec3 ray_dir = normalize(camera_dir + (ndc.x * camera_right) + (ndc.y * camera_up));
     vec3 ray_inv_dir = vec3(1.0) /  mix(ray_dir, vec3(1e-6), vec3(equal(ray_dir, vec3(0.0))));
-    vec3 ray_origin = camera_pos.xyz;
+    vec3 ray_origin = camera_pos;
 
     // 2. Initialize SVO Ray Tracing
     vec3 root_min = root_pos.xyz - vec3(root_pos.w * 0.5);
@@ -94,7 +96,7 @@ void main() {
         float old_t = t;
         
         vec3 ray_pos = ray_origin + (ray_dir * t);
-        uint node_idx = 0; 
+        uint64_t node_idx = 0; 
         vec3 node_pos = root_pos.xyz;
         float node_size = root_pos.w;
 
@@ -113,11 +115,11 @@ void main() {
             vec3 sub_max = node_pos + vec3(node_size * 0.5);
 
             uvec2 raw = octree_ptr.nodes[node_idx];
-            uint child_idx = raw.x;
+            uint64_t child_idx = uint64_t(raw.x);
             uint child_mask = raw.y;
 
             uint mask_before = child_mask & ((1u << octant) - 1u);
-            uint target_idx = child_idx + uint(bitCount(mask_before));
+            uint64_t target_idx = child_idx + uint64_t(bitCount(mask_before));
 
             uint presence_bit = (child_mask >> octant) & 1u;
 
