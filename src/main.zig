@@ -3,6 +3,7 @@ const vk = @import("vulkan");
 const args = @import("args");
 
 const Context = @import("./context.zig").Context;
+const Args = @import("./args.zig");
 const Pipeline = @import("./pipeline.zig");
 const Output = @import("./output.zig");
 const Colormap = @import("./colormap.zig");
@@ -31,67 +32,8 @@ pub fn main(init: std.process.Init) !void {
     });
     defer parser.deinit();
 
-    try parser.addOption("colormap-file", .{
-        .help = "Input colormap file",
-        .value_type = .string,
-        .required = true,
-    });
+    var result = try Args.parseArgs(&parser, init);
 
-    try parser.addOption("path-file", .{
-        .help = "Input camera path file",
-        .value_type = .string,
-        .required = true,
-    });
-
-    try parser.addOption("data-file", .{
-        .help = "Input simulation data file",
-        .value_type = .string,
-        .required = true,
-    });
-
-    try parser.addOption("video-file", .{
-        .help = "Output video file",
-        .value_type = .string,
-        .default = "video.mp4",
-    });
-
-    try parser.addOption("width", .{
-        .help = "Output video width",
-        .value_type = .uint,
-        .default = "1920",
-    });
-
-    try parser.addOption("height", .{
-        .help = "Output video height",
-        .value_type = .uint,
-        .default = "1080",
-    });
-
-    try parser.addOption("fov", .{
-        .help = "Output video FOV",
-        .value_type = .float,
-        .default = "60",
-    });
-
-    try parser.addOption("framerate", .{
-        .help = "Output video framerate",
-        .value_type = .uint,
-        .default = "60",
-    });
-
-    try parser.addOption("min-val", .{
-        .help = "Minimum value under which data is discarded",
-        .value_type = .float,
-        .default = "-3.0",
-    });
-
-    try parser.addOption("max-val", .{
-        .help = "Maximum value over which data is discarded",
-        .value_type = .float,
-        .default = "3.0",
-    });
-
-    var result = try parser.parseProcess(init);
     defer result.deinit();
 
     const cmap_file = result.getString("colormap-file");
@@ -107,12 +49,15 @@ pub fn main(init: std.process.Init) !void {
     const min_val: f32 = @floatCast(result.getOrFloat("min-val", -3.0));
     const max_val: f32 = @floatCast(result.getOrFloat("max-val", 3.0));
 
-    const under_color = [4]f32{ 0.0, 0.0, 0.0, 1.0 };
-    const over_color = [4]f32{ 1.0, 1.0, 1.0, 1.0 };
-    const bad_color = [4]f32{ 0.0, 0.0, 0.0, 0.0 };
+    const under_color = try Args.parseArray(result.getArray("under-color"), 4, .{ 0.0, 0.0, 0.0, 1.0 });
+    const over_color = try Args.parseArray(result.getArray("over-color"), 4, .{ 1.0, 1.0, 1.0, 1.0 });
+    const bad_color = try Args.parseArray(result.getArray("bad-color"), 4, .{ 0.0, 0.0, 0.0, 0.0 });
 
-    const root_pos = [3]f32{ 0.0, 0.0, 0.0 };
-    const root_size: f32 = 16.0;
+    const root_pos = try Args.parseArray(result.getArray("root-pos"), 3, .{ 0.0, 0.0, 0.0 });
+    const root_size: f32 = @floatCast(result.getOrFloat("root-size", 1.0));
+
+    const encoder = result.getEnum(Video.Encoder, "encoder") orelse .x264;
+    const hwaccel = result.getEnum(Video.HWAccel, "hwaccel") orelse .none;
 
     // --------------------------- Initialize Vulkan -----------------------------------
     std.log.info("Initializing Vulkan...", .{});
@@ -188,7 +133,7 @@ pub fn main(init: std.process.Init) !void {
 
     try cmap.upload(&ctx, command_buffer, io, cmap_file.?);
 
-    // --------------------------- Data Upload & DMA Transfers -----------------------------------
+    // --------------------------- Push Constants -----------------------------------
 
     var push_constants = Constants.PushConstant{
         // Camera info
@@ -209,7 +154,16 @@ pub fn main(init: std.process.Init) !void {
     };
 
     // --------------------------- Initialize Video Stream -----------------------------------
-    var proc = try Video.open_ffmpeg(init.io, frame_width, frame_height, framerate, video_file);
+    var proc = try Video.open_ffmpeg(
+        init.io,
+        allocator,
+        frame_width,
+        frame_height,
+        framerate,
+        video_file,
+        encoder,
+        hwaccel,
+    );
 
     // --------------------------- Main Render Loop -----------------------------------
     const render_fence = try ctx.dev.createFence(&.{ .flags = .{} }, null);
