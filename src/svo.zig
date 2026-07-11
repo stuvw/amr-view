@@ -36,10 +36,11 @@ pub const SVOBuffer = struct {
     memory: vk.DeviceMemory,
     ptr: u64,
 
-    pub fn create(self: *@This(), ctx: *const Context, num_nodes: usize) !void {
-        self.size = num_nodes * @sizeOf(OctreeNode);
+    pub fn create(self: *@This(), ctx: *const Context, size: usize) !void {
+        self.size = size;
+        std.log.debug("Creating octree chunk of size {d} bytes", .{size});
         self.buffer = try ctx.dev.createBuffer(&.{
-            .size = self.size,
+            .size = size,
             .usage = .{
                 .transfer_dst_bit = true,
                 .storage_buffer_bit = true,
@@ -58,11 +59,121 @@ pub const SVOBuffer = struct {
         ctx.dev.destroyBuffer(self.buffer, null);
     }
 
-    pub fn upload(self: *@This(), ctx: *const Context, cmdbuf: vk.CommandBuffer, io: Io, filename: []const u8) !void {
-        try ctx.dev.beginCommandBuffer(cmdbuf, &.{ .flags = .{ .one_time_submit_bit = true } });
+    pub fn upload(self: *@This(), ctx: *const Context, cmdbuf: vk.CommandBuffer, reader: *std.Io.File.Reader, staging_buffer: vk.Buffer, staging_slice: []u8) !void {
+        var num_bytes_left = self.size;
+        var offset: usize = 0;
+
+        const upload_fence = try ctx.dev.createFence(&.{}, null);
+        defer ctx.dev.destroyFence(upload_fence, null);
+
+        while (num_bytes_left > 0) {
+            const num_bytes_to_copy = @min(staging_slice.len, num_bytes_left);
+
+            try reader.interface.readSliceAll(staging_slice[0..num_bytes_to_copy]);
+
+            std.log.debug("Reading {d} bytes from file. {d} bytes left to read.", .{ num_bytes_to_copy, num_bytes_left });
+
+            // NOTE: cmdbuf has the reset_command_buffer_bit set, no need to manually reset it here
+            try ctx.dev.beginCommandBuffer(cmdbuf, &.{ .flags = .{ .one_time_submit_bit = true } });
+
+            ctx.dev.cmdCopyBuffer(cmdbuf, staging_buffer, self.buffer, &[_]vk.BufferCopy{.{
+                .src_offset = 0,
+                .dst_offset = offset,
+                .size = num_bytes_to_copy,
+            }});
+
+            const buffer_barrier = vk.BufferMemoryBarrier{
+                .src_access_mask = .{ .transfer_write_bit = true },
+                .dst_access_mask = .{ .shader_read_bit = true },
+                .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+                .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+                .buffer = self.buffer,
+                .offset = offset,
+                .size = num_bytes_to_copy,
+            };
+
+            ctx.dev.cmdPipelineBarrier(
+                cmdbuf,
+                .{ .transfer_bit = true },
+                .{ .compute_shader_bit = true },
+                .{},
+                &.{},
+                &.{buffer_barrier},
+                &.{},
+            );
+
+            try ctx.dev.endCommandBuffer(cmdbuf);
+
+            try ctx.dev.resetFences(&[_]vk.Fence{upload_fence});
+            try ctx.dev.queueSubmit(ctx.compute_queue.handle, &[_]vk.SubmitInfo{.{
+                .command_buffer_count = 1,
+                .p_command_buffers = &.{cmdbuf},
+            }}, upload_fence);
+
+            _ = try ctx.dev.waitForFences(&[_]vk.Fence{upload_fence}, .true, std.math.maxInt(u64));
+
+            num_bytes_left -= num_bytes_to_copy;
+            offset += num_bytes_to_copy;
+        }
+
+        _ = try ctx.dev.queueWaitIdle(ctx.compute_queue.handle);
+    }
+};
+
+pub const SVOBuffers = struct {
+    buffers: []SVOBuffer,
+
+    pub fn create(
+        self: *@This(),
+        ctx: *const Context,
+        allocator: std.mem.Allocator,
+        num_nodes: usize,
+        max_buf_size: usize,
+    ) !void {
+        const size = num_nodes * @sizeOf(OctreeNode);
+        const num_full_buffers = size / max_buf_size;
+        const last_buf_size = size % max_buf_size;
+
+        var num_buffers = num_full_buffers;
+        if (last_buf_size != 0) {
+            num_buffers += 1;
+        }
+
+        std.log.debug("Created {d} octree chunks", .{num_buffers});
+        std.log.debug("Attempting to read {d} bytes from file", .{size});
+
+        self.buffers = try allocator.alloc(SVOBuffer, num_buffers);
+
+        for (0..num_full_buffers) |i| {
+            try self.buffers[i].create(ctx, max_buf_size);
+        }
+
+        if (last_buf_size != 0) {
+            try self.buffers[num_buffers - 1].create(ctx, last_buf_size);
+        }
+    }
+
+    pub fn destroy(self: *@This(), ctx: *const Context, allocator: std.mem.Allocator) void {
+        for (self.buffers) |*buffer| {
+            buffer.destroy(ctx);
+        }
+        allocator.free(self.buffers);
+    }
+
+    pub fn upload(self: *@This(), ctx: *const Context, cmdbuf: vk.CommandBuffer, io: std.Io, filename: []const u8, header_size: usize) !void {
+        const cwd = Io.Dir.cwd();
+
+        const file = try cwd.openFile(io, filename, .{ .mode = .read_only });
+        defer file.close(io);
+
+        var reader = file.reader(io, &.{});
+
+        try reader.interface.discardAll(header_size);
+
+        const staging_buf_size = 128 * 1024 * 1024; // 128 MiB
 
         const staging_buffer = try ctx.dev.createBuffer(&.{
-            .size = self.size,
+            .size = staging_buf_size,
             .usage = .{ .transfer_src_bit = true },
             .sharing_mode = .exclusive,
         }, null);
@@ -73,50 +184,13 @@ pub const SVOBuffer = struct {
         defer ctx.dev.freeMemory(mem, null);
         try ctx.dev.bindBufferMemory(staging_buffer, mem, 0);
 
-        const staging_ptr = try ctx.dev.mapMemory(mem, 0, self.size, .{});
+        const staging_ptr = try ctx.dev.mapMemory(mem, 0, staging_buf_size, .{});
         defer ctx.dev.unmapMemory(mem);
-        const staging_slice = @as([*]u8, @ptrCast(staging_ptr));
+        const staging_slice = @as([*]u8, @ptrCast(staging_ptr))[0..staging_buf_size];
 
-        try loadSVOFile(io, filename, self.size, staging_slice);
-
-        ctx.dev.cmdCopyBuffer(cmdbuf, staging_buffer, self.buffer, &[_]vk.BufferCopy{.{
-            .src_offset = 0,
-            .dst_offset = 0,
-            .size = self.size,
-        }});
-
-        const buffer_barrier = vk.BufferMemoryBarrier{
-            .src_access_mask = .{ .transfer_write_bit = true },
-            .dst_access_mask = .{ .shader_read_bit = true },
-            .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
-            .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
-            .buffer = self.buffer,
-            .offset = 0,
-            .size = self.size,
-        };
-
-        ctx.dev.cmdPipelineBarrier(
-            cmdbuf,
-            .{ .transfer_bit = true },
-            .{ .compute_shader_bit = true },
-            .{},
-            &.{},
-            &.{buffer_barrier},
-            &.{},
-        );
-
-        try ctx.dev.endCommandBuffer(cmdbuf);
-
-        const upload_fence = try ctx.dev.createFence(&.{}, null);
-        defer ctx.dev.destroyFence(upload_fence, null);
-
-        try ctx.dev.queueSubmit(ctx.compute_queue.handle, &[_]vk.SubmitInfo{.{
-            .command_buffer_count = 1,
-            .p_command_buffers = &.{cmdbuf},
-        }}, upload_fence);
-
-        _ = try ctx.dev.waitForFences(&[_]vk.Fence{upload_fence}, .true, std.math.maxInt(u64));
-        _ = try ctx.dev.queueWaitIdle(ctx.compute_queue.handle);
+        for (self.buffers) |*buffer| {
+            try buffer.upload(ctx, cmdbuf, &reader, staging_buffer, staging_slice);
+        }
     }
 };
 
@@ -145,19 +219,4 @@ pub fn getSVOMetadata(io: Io, filename: []const u8) !SVOFileMetadata {
     }
 
     return std.mem.bytesToValue(SVOFileMetadata, header_buffer[magic.len..]);
-}
-
-fn loadSVOFile(io: Io, filename: []const u8, size: usize, buf: [*]u8) !void {
-    const cwd = Io.Dir.cwd();
-
-    const file = try cwd.openFile(io, filename, .{ .mode = .read_only });
-    defer file.close(io);
-
-    var reader = file.reader(io, &.{});
-
-    const header_size = 8 + @sizeOf(SVOFileMetadata);
-
-    try reader.interface.discardAll(header_size);
-
-    try reader.interface.readSliceAll(buf[0..size]);
 }

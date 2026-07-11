@@ -7,12 +7,16 @@
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 // --- Buffers and Images ---
-layout(buffer_reference, std430) readonly buffer Octree {
+layout(buffer_reference, std430) readonly buffer OctreeChunk {
     uvec2 nodes[];
 };
 
 layout(rgba8, set = 0, binding = 0) writeonly uniform image2D out_image;
 layout(set = 0, binding = 1) uniform sampler2D colormap_tex;
+
+layout(set = 0, binding = 2) uniform buffers {
+    uint64_t chunk_ptrs[16]; // Hard limit for now (~64 GiB, platform-dependant, depends on MaxMemoryAllocationSize)
+};
 
 layout(push_constant) uniform Constants {
     vec3 camera_pos;
@@ -23,7 +27,7 @@ layout(push_constant) uniform Constants {
     vec4 under_color;
     vec4 over_color;
     vec4 bad_color;
-    Octree octree_ptr;
+    uint64_t nodes_per_chunk;
     float camera_fov;
     float min_val;
     float max_val;
@@ -114,7 +118,13 @@ void main() {
             vec3 sub_min = node_pos - vec3(node_size * 0.5);
             vec3 sub_max = node_pos + vec3(node_size * 0.5);
 
-            uvec2 raw = octree_ptr.nodes[node_idx];
+            uint64_t chunk_idx = node_idx / nodes_per_chunk;
+            uint64_t sub_idx = node_idx % nodes_per_chunk;
+
+            uint64_t base_addr = chunk_ptrs[chunk_idx];
+            OctreeChunk curr_chunk = OctreeChunk(base_addr);
+
+            uvec2 raw = curr_chunk.nodes[sub_idx];
             uint64_t child_idx = uint64_t(raw.x);
             uint child_mask = raw.y;
 
@@ -132,7 +142,13 @@ void main() {
             uint type_bit = (child_mask >> (octant + 8u)) & 1u;
 
             if (type_bit == 1u) {
-                uvec2 leaf_raw = octree_ptr.nodes[target_idx];
+                uint64_t target_chunk_idx = target_idx / nodes_per_chunk;
+                uint64_t target_sub_idx = target_idx % nodes_per_chunk;
+
+                uint64_t target_base_addr = chunk_ptrs[target_chunk_idx];
+                OctreeChunk target_chunk = OctreeChunk(target_base_addr);
+
+                uvec2 leaf_raw = target_chunk.nodes[target_sub_idx];
 
                 float t_exit = get_exit_t(ray_origin, ray_inv_dir, sub_min, sub_max);
                 float dt = t_exit - t;

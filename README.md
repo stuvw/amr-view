@@ -107,7 +107,7 @@ The binary will be generated at `./zig-out/bin/amr-view` .
 | --under-color | 0,0,0,1 | RGBA color used when the value underflows --min-val |
 | --over-color | 1,1,1,1 | RGBA color used when the value overflows --max-val |
 | --bad-color | 0,0,0,0 | RGBA color used when a rendering error occurs |
-| --root-size | 1.0 | Edge ize of the root node of the SVO |
+| --root-size | 1.0 | Edge size of the root node of the SVO |
 | --root-pos | 0,0,0 | Center position of the root of the SVO |
 | --encoder | x264 | Video codec used to encode the output video. Choices: x264, x265, av1 |
 | --hwaccel | none | Use GPU hardware video acceleration. GPU must support requested encoder. Choices: none, nvenc, amf, qsv |

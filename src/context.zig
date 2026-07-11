@@ -44,6 +44,9 @@ pub const Context = struct {
 
     compute_queue: Queue,
 
+    total_vram: u64,
+    max_alloc_size: u64,
+
     pub fn init(allocator: Allocator, app_name: [*:0]const u8) !Context {
         var self: Context = undefined;
         self.allocator = allocator;
@@ -129,6 +132,8 @@ pub const Context = struct {
 
         self.mem_props = self.instance.getPhysicalDeviceMemoryProperties(self.pdev);
 
+        self.queryDeviceLimits();
+
         return self;
     }
 
@@ -189,6 +194,35 @@ pub const Context = struct {
             },
         }, null);
     }
+
+    pub fn queryDeviceLimits(self: *Context) void {
+        self.total_vram = 0;
+
+        for (0..self.mem_props.memory_heap_count) |i| {
+            const heap = self.mem_props.memory_heaps[i];
+            const is_device_local = self.mem_props.memory_heaps[i].flags.device_local_bit;
+
+            if (is_device_local) {
+                if (heap.size > self.total_vram) {
+                    self.total_vram = heap.size;
+                }
+            }
+        }
+
+        var m3props = vk.PhysicalDeviceMaintenance3Properties{
+            .max_memory_allocation_size = 0,
+            .max_per_set_descriptors = 0,
+        };
+
+        var props2 = vk.PhysicalDeviceProperties2{
+            .properties = undefined,
+            .p_next = &m3props,
+        };
+
+        self.instance.getPhysicalDeviceProperties2(self.pdev, &props2);
+
+        self.max_alloc_size = m3props.max_memory_allocation_size;
+    }
 };
 
 fn checkLayerSupport(vkb: *const BaseWrapper, alloc: Allocator) !bool {
@@ -235,7 +269,7 @@ fn initializeCandidate(instance: Instance, candidate: DeviceCandidate) !vk.Devic
     };
 
     var dev_features = vk.PhysicalDeviceFeatures2{
-        .features = .{},
+        .features = .{ .shader_int_64 = .true },
         .p_next = &vk_12_features,
     };
 
@@ -298,6 +332,7 @@ fn checkSuitable(
 
     if (try allocateQueues(instance, pdev, allocator)) |allocation| {
         const props = instance.getPhysicalDeviceProperties(pdev);
+
         return DeviceCandidate{
             .pdev = pdev,
             .props = props,

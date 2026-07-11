@@ -66,6 +66,15 @@ pub fn main(init: std.process.Init) !void {
     defer ctx.deinit();
 
     std.log.info("Using device: {s}", .{ctx.deviceName()});
+    std.log.info(
+        "Total VRAM: {d} bytes ({d:.2} GiB)",
+        .{ ctx.total_vram, @as(f64, @floatFromInt(ctx.total_vram)) / (1024.0 * 1024.0 * 1024.0) },
+    );
+
+    std.log.info(
+        "Max single allocation size: {d} bytes ({d:.2} GiB)",
+        .{ ctx.max_alloc_size, @as(f64, @floatFromInt(ctx.max_alloc_size)) / (1024.0 * 1024.0 * 1024.0) },
+    );
 
     // --------------------------- Output -----------------------------------
 
@@ -90,9 +99,34 @@ pub fn main(init: std.process.Init) !void {
 
     const metadata = try SVO.getSVOMetadata(io, data_file.?);
 
-    var svo: SVO.SVOBuffer = undefined;
-    try svo.create(&ctx, metadata.num_nodes);
-    defer svo.destroy(&ctx);
+    var svo: SVO.SVOBuffers = undefined;
+    try svo.create(&ctx, allocator, metadata.num_nodes, ctx.max_alloc_size);
+    defer svo.destroy(&ctx, allocator);
+
+    var chunk_ptrs: [16]u64 = undefined;
+    for (svo.buffers, 0..) |b, i| {
+        chunk_ptrs[i] = b.ptr;
+    }
+
+    const chunk_ptr_buffer = try ctx.dev.createBuffer(&.{
+        .size = @sizeOf(u64) * 16,
+        .usage = .{ .uniform_buffer_bit = true },
+        .sharing_mode = .exclusive,
+    }, null);
+    defer ctx.dev.destroyBuffer(chunk_ptr_buffer, null);
+
+    const chunk_ptr_buffer_reqs = ctx.dev.getBufferMemoryRequirements(chunk_ptr_buffer);
+    const chunk_ptr_buffer_mem = try ctx.allocate(chunk_ptr_buffer_reqs, .{
+        .host_coherent_bit = true,
+        .host_visible_bit = true,
+    });
+    defer ctx.dev.freeMemory(chunk_ptr_buffer_mem, null);
+
+    try ctx.dev.bindBufferMemory(chunk_ptr_buffer, chunk_ptr_buffer_mem, 0);
+    const chunk_ptr_buffer_ptr = try ctx.dev.mapMemory(chunk_ptr_buffer_mem, 0, @sizeOf(u64) * 16, .{});
+    defer ctx.dev.unmapMemory(chunk_ptr_buffer_mem);
+
+    @memcpy(@as([*]u8, @ptrCast(chunk_ptr_buffer_ptr)), std.mem.asBytes(&chunk_ptrs));
 
     // --------------------------- Shader Binding Layouts -----------------------------------
 
@@ -124,12 +158,13 @@ pub fn main(init: std.process.Init) !void {
         output_image.image_view,
         nearest_sampler,
         cmap.image_view,
+        chunk_ptr_buffer,
     );
 
     // --------------------------- Data Upload & DMA Transfers -----------------------------------
     std.log.info("Uploading SVO to VRAM...", .{});
 
-    try svo.upload(&ctx, command_buffer, io, data_file.?);
+    try svo.upload(&ctx, command_buffer, io, data_file.?, 64); // damn, lucky...
 
     try cmap.upload(&ctx, command_buffer, io, cmap_file.?);
 
@@ -150,7 +185,7 @@ pub fn main(init: std.process.Init) !void {
         .max_val = max_val,
         // Octree info
         .root_pos = .{ root_pos[0], root_pos[1], root_pos[2], root_size },
-        .octree_ptr = svo.ptr,
+        .nodes_per_chunk = ctx.max_alloc_size / @sizeOf(SVO.OctreeNode),
     };
 
     // --------------------------- Initialize Video Stream -----------------------------------
