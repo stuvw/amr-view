@@ -34,7 +34,7 @@ pub fn createDescriptorSetLayout(ctx: *const Context) !vk.DescriptorSetLayout {
                 .stage_flags = .{ .compute_bit = true },
             },
             .{
-                .binding = 2, // buffer pointers
+                .binding = 2, // chunk pointers
                 .descriptor_type = .storage_buffer,
                 .descriptor_count = 1,
                 .stage_flags = .{ .compute_bit = true },
@@ -89,7 +89,7 @@ pub fn updateDescriptorSets(
             .p_buffer_info = &.{},
             .p_texel_buffer_view = &.{},
         },
-        .{ // Binding 2: Octree Buffer Pointers
+        .{ // Binding 2: Octree Chunk Pointers
             .dst_set = set,
             .dst_binding = 2,
             .dst_array_element = 0,

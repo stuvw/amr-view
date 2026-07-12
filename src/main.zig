@@ -36,9 +36,9 @@ pub fn main(init: std.process.Init) !void {
 
     defer result.deinit();
 
-    const cmap_file = result.getString("colormap-file");
-    const path_file = result.getString("path-file");
-    const data_file = result.getString("data-file");
+    const cmap_file = result.getString("colormap-file").?;
+    const path_file = result.getString("path-file").?;
+    const data_file = result.getString("data-file").?;
     const video_file = result.getOrString("video-file", "./video.mp4");
 
     const frame_width: usize = result.getOrUint("width", 1920);
@@ -65,17 +65,6 @@ pub fn main(init: std.process.Init) !void {
     const ctx = try Context.init(allocator, "amr-view");
     defer ctx.deinit();
 
-    std.log.info("Using device: {s}", .{ctx.deviceName()});
-    std.log.debug(
-        "Total VRAM: {d} bytes ({Bi:.2})",
-        .{ ctx.total_vram, ctx.total_vram },
-    );
-
-    std.log.debug(
-        "Max single allocation size: {d} bytes ({Bi:.2})",
-        .{ ctx.max_alloc_size, ctx.max_alloc_size },
-    );
-
     // --------------------------- Output -----------------------------------
 
     var output_image: Output.OutputImage = undefined;
@@ -97,20 +86,23 @@ pub fn main(init: std.process.Init) !void {
 
     // --------------------------- Sparse Voxel Octree -----------------------------------
 
-    const metadata = try SVO.getSVOMetadata(io, data_file.?);
+    const metadata = try SVO.getSVOMetadata(io, data_file);
 
     var svo: SVO.SVOBuffers = undefined;
-    const l2: u64 = @as(u64, 1) << @intCast(std.math.log2(ctx.max_alloc_size));
-    try svo.create(&ctx, allocator, metadata.num_nodes, l2);
+    const chunk_size_bytes: u64 = @as(u64, 1) << @intCast(std.math.log2(ctx.max_alloc_size));
+    try svo.create(&ctx, allocator, metadata.num_nodes, chunk_size_bytes);
     defer svo.destroy(&ctx, allocator);
 
-    var chunk_ptrs: [16]u64 = undefined;
+    // --------------------------- SVO chunking -----------------------------------
+
+    var chunk_ptrs = try allocator.alloc(u64, svo.buffers.len);
+    defer allocator.free(chunk_ptrs);
     for (svo.buffers, 0..) |b, i| {
         chunk_ptrs[i] = b.ptr;
     }
 
     const chunk_ptr_buffer = try ctx.dev.createBuffer(&.{
-        .size = @sizeOf(u64) * 16,
+        .size = @sizeOf(u64) * chunk_ptrs.len,
         .usage = .{ .storage_buffer_bit = true },
         .sharing_mode = .exclusive,
     }, null);
@@ -124,10 +116,10 @@ pub fn main(init: std.process.Init) !void {
     defer ctx.dev.freeMemory(chunk_ptr_buffer_mem, null);
 
     try ctx.dev.bindBufferMemory(chunk_ptr_buffer, chunk_ptr_buffer_mem, 0);
-    const chunk_ptr_buffer_ptr = try ctx.dev.mapMemory(chunk_ptr_buffer_mem, 0, @sizeOf(u64) * 16, .{});
+    const chunk_ptr_buffer_ptr = try ctx.dev.mapMemory(chunk_ptr_buffer_mem, 0, @sizeOf(u64) * chunk_ptrs.len, .{});
     defer ctx.dev.unmapMemory(chunk_ptr_buffer_mem);
 
-    @memcpy(@as([*]u8, @ptrCast(chunk_ptr_buffer_ptr)), std.mem.asBytes(&chunk_ptrs));
+    @memcpy(@as([*]u8, @ptrCast(chunk_ptr_buffer_ptr)), std.mem.sliceAsBytes(chunk_ptrs));
 
     // --------------------------- Shader Binding Layouts -----------------------------------
 
@@ -165,11 +157,9 @@ pub fn main(init: std.process.Init) !void {
     // --------------------------- Data Upload & DMA Transfers -----------------------------------
     std.log.info("Uploading SVO to VRAM...", .{});
 
-    try svo.upload(&ctx, command_buffer, io, data_file.?, 64); // damn, lucky...
+    try svo.upload(&ctx, command_buffer, io, data_file, 64);
 
-    try cmap.upload(&ctx, command_buffer, io, cmap_file.?);
-
-    std.log.debug("Finished uploading successfully.", .{});
+    try cmap.upload(&ctx, command_buffer, io, cmap_file);
 
     // --------------------------- Push Constants -----------------------------------
 
@@ -187,8 +177,8 @@ pub fn main(init: std.process.Init) !void {
         .min_val = min_val,
         .max_val = max_val,
         // Octree info
-        .root_pos = .{ root_pos[0], root_pos[1], root_pos[2], root_size },
-        .chunk_shift = std.math.log2(l2 / @sizeOf(SVO.OctreeNode)),
+        .root_pos = root_pos ++ .{root_size},
+        .chunk_shift = std.math.log2(chunk_size_bytes / @sizeOf(SVO.OctreeNode)),
     };
 
     // --------------------------- Initialize Video Stream -----------------------------------
@@ -203,13 +193,11 @@ pub fn main(init: std.process.Init) !void {
         hwaccel,
     );
 
-    std.log.debug("Spawned FFmpeg process successfully", .{});
-
     // --------------------------- Main Render Loop -----------------------------------
     const render_fence = try ctx.dev.createFence(&.{ .flags = .{} }, null);
     defer ctx.dev.destroyFence(render_fence, null);
 
-    const frames = try Path.load(path_file.?, io, allocator);
+    const frames = try Path.load(path_file, io, allocator);
     defer allocator.free(frames);
 
     const num_frames = frames.len;
@@ -222,10 +210,10 @@ pub fn main(init: std.process.Init) !void {
         const cam_up = frame[6..9].*;
         const cam_right = Math.cross(cam_dir, cam_up);
 
-        push_constants.camera_pos = .{ cam_pos[0], cam_pos[1], cam_pos[2], 0.0 };
-        push_constants.camera_dir = .{ cam_dir[0], cam_dir[1], cam_dir[2], 0.0 };
-        push_constants.camera_right = .{ cam_right[0], cam_right[1], cam_right[2], 0.0 };
-        push_constants.camera_up = .{ cam_up[0], cam_up[1], cam_up[2], 0.0 };
+        push_constants.camera_pos = cam_pos;
+        push_constants.camera_dir = cam_dir;
+        push_constants.camera_right = cam_right;
+        push_constants.camera_up = cam_up;
 
         // 2. Start Recording Commands
         try ctx.dev.beginCommandBuffer(command_buffer, &.{

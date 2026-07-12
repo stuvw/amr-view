@@ -38,7 +38,7 @@ pub const SVOBuffer = struct {
 
     pub fn create(self: *@This(), ctx: *const Context, size: usize) !void {
         self.size = size;
-        std.log.debug("Creating octree chunk of size {d} bytes", .{size});
+        std.log.debug("Creating octree chunk of size {Bi:.2}", .{size});
         self.buffer = try ctx.dev.createBuffer(&.{
             .size = size,
             .usage = .{
@@ -70,8 +70,6 @@ pub const SVOBuffer = struct {
             const num_bytes_to_copy = @min(staging_slice.len, num_bytes_left);
 
             try reader.interface.readSliceAll(staging_slice[0..num_bytes_to_copy]);
-
-            std.log.debug("Copying {d} bytes. {d} bytes left to copy.", .{ num_bytes_to_copy, num_bytes_left });
 
             // NOTE: cmdbuf has the reset_command_buffer_bit set, no need to manually reset it here
             try ctx.dev.beginCommandBuffer(cmdbuf, &.{ .flags = .{ .one_time_submit_bit = true } });
@@ -139,7 +137,7 @@ pub const SVOBuffers = struct {
             num_buffers += 1;
         }
 
-        std.log.debug("Attempting to read {d} bytes from file", .{size});
+        std.log.debug("Attempting to read {Bi:.2} from file", .{size});
         std.log.debug("Created {d} octree chunks", .{num_buffers});
 
         self.buffers = try allocator.alloc(SVOBuffer, num_buffers);
