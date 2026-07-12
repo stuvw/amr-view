@@ -66,14 +66,14 @@ pub fn main(init: std.process.Init) !void {
     defer ctx.deinit();
 
     std.log.info("Using device: {s}", .{ctx.deviceName()});
-    std.log.info(
-        "Total VRAM: {d} bytes ({d:.2} GiB)",
-        .{ ctx.total_vram, @as(f64, @floatFromInt(ctx.total_vram)) / (1024.0 * 1024.0 * 1024.0) },
+    std.log.debug(
+        "Total VRAM: {d} bytes ({Bi:.2})",
+        .{ ctx.total_vram, ctx.total_vram },
     );
 
-    std.log.info(
-        "Max single allocation size: {d} bytes ({d:.2} GiB)",
-        .{ ctx.max_alloc_size, @as(f64, @floatFromInt(ctx.max_alloc_size)) / (1024.0 * 1024.0 * 1024.0) },
+    std.log.debug(
+        "Max single allocation size: {d} bytes ({Bi:.2})",
+        .{ ctx.max_alloc_size, ctx.max_alloc_size },
     );
 
     // --------------------------- Output -----------------------------------
@@ -100,7 +100,8 @@ pub fn main(init: std.process.Init) !void {
     const metadata = try SVO.getSVOMetadata(io, data_file.?);
 
     var svo: SVO.SVOBuffers = undefined;
-    try svo.create(&ctx, allocator, metadata.num_nodes, ctx.max_alloc_size);
+    const l2: u64 = @as(u64, 1) << @intCast(std.math.log2(ctx.max_alloc_size));
+    try svo.create(&ctx, allocator, metadata.num_nodes, l2);
     defer svo.destroy(&ctx, allocator);
 
     var chunk_ptrs: [16]u64 = undefined;
@@ -110,7 +111,7 @@ pub fn main(init: std.process.Init) !void {
 
     const chunk_ptr_buffer = try ctx.dev.createBuffer(&.{
         .size = @sizeOf(u64) * 16,
-        .usage = .{ .uniform_buffer_bit = true },
+        .usage = .{ .storage_buffer_bit = true },
         .sharing_mode = .exclusive,
     }, null);
     defer ctx.dev.destroyBuffer(chunk_ptr_buffer, null);
@@ -168,6 +169,8 @@ pub fn main(init: std.process.Init) !void {
 
     try cmap.upload(&ctx, command_buffer, io, cmap_file.?);
 
+    std.log.debug("Finished uploading successfully.", .{});
+
     // --------------------------- Push Constants -----------------------------------
 
     var push_constants = Constants.PushConstant{
@@ -185,7 +188,7 @@ pub fn main(init: std.process.Init) !void {
         .max_val = max_val,
         // Octree info
         .root_pos = .{ root_pos[0], root_pos[1], root_pos[2], root_size },
-        .nodes_per_chunk = ctx.max_alloc_size / @sizeOf(SVO.OctreeNode),
+        .chunk_shift = std.math.log2(l2 / @sizeOf(SVO.OctreeNode)),
     };
 
     // --------------------------- Initialize Video Stream -----------------------------------
@@ -199,6 +202,8 @@ pub fn main(init: std.process.Init) !void {
         encoder,
         hwaccel,
     );
+
+    std.log.debug("Spawned FFmpeg process successfully", .{});
 
     // --------------------------- Main Render Loop -----------------------------------
     const render_fence = try ctx.dev.createFence(&.{ .flags = .{} }, null);

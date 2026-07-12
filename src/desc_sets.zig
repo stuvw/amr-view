@@ -8,7 +8,7 @@ pub fn createDescriptorPool(ctx: *const Context) !vk.DescriptorPool {
         .p_pool_sizes = &[_]vk.DescriptorPoolSize{
             .{ .type = .combined_image_sampler, .descriptor_count = 1 },
             .{ .type = .storage_image, .descriptor_count = 1 },
-            .{ .type = .uniform_buffer, .descriptor_count = 1 },
+            .{ .type = .storage_buffer, .descriptor_count = 1 },
         },
     }, null);
 }
@@ -35,7 +35,7 @@ pub fn createDescriptorSetLayout(ctx: *const Context) !vk.DescriptorSetLayout {
             },
             .{
                 .binding = 2, // buffer pointers
-                .descriptor_type = .uniform_buffer,
+                .descriptor_type = .storage_buffer,
                 .descriptor_count = 1,
                 .stage_flags = .{ .compute_bit = true },
             },
@@ -94,7 +94,7 @@ pub fn updateDescriptorSets(
             .dst_binding = 2,
             .dst_array_element = 0,
             .descriptor_count = 1,
-            .descriptor_type = .uniform_buffer,
+            .descriptor_type = .storage_buffer,
             .p_buffer_info = &.{octree_ptr_buffer_info},
             .p_image_info = &.{},
             .p_texel_buffer_view = &.{},

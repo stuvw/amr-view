@@ -14,8 +14,8 @@ layout(buffer_reference, std430) readonly buffer OctreeChunk {
 layout(rgba8, set = 0, binding = 0) writeonly uniform image2D out_image;
 layout(set = 0, binding = 1) uniform sampler2D colormap_tex;
 
-layout(set = 0, binding = 2) uniform buffers {
-    uint64_t chunk_ptrs[16]; // Hard limit for now (~64 GiB, platform-dependant, depends on MaxMemoryAllocationSize)
+layout(std430, set = 0, binding = 2) readonly buffer chunks {
+    uint64_t chunk_ptrs[];
 };
 
 layout(push_constant) uniform Constants {
@@ -27,7 +27,7 @@ layout(push_constant) uniform Constants {
     vec4 under_color;
     vec4 over_color;
     vec4 bad_color;
-    uint64_t nodes_per_chunk;
+    uint64_t chunk_shift;
     float camera_fov;
     float min_val;
     float max_val;
@@ -118,8 +118,8 @@ void main() {
             vec3 sub_min = node_pos - vec3(node_size * 0.5);
             vec3 sub_max = node_pos + vec3(node_size * 0.5);
 
-            uint64_t chunk_idx = node_idx / nodes_per_chunk;
-            uint64_t sub_idx = node_idx % nodes_per_chunk;
+            uint64_t chunk_idx = node_idx >> chunk_shift;
+            uint64_t sub_idx = node_idx & ((1u << chunk_shift) - 1u);
 
             uint64_t base_addr = chunk_ptrs[chunk_idx];
             OctreeChunk curr_chunk = OctreeChunk(base_addr);
@@ -142,8 +142,8 @@ void main() {
             uint type_bit = (child_mask >> (octant + 8u)) & 1u;
 
             if (type_bit == 1u) {
-                uint64_t target_chunk_idx = target_idx / nodes_per_chunk;
-                uint64_t target_sub_idx = target_idx % nodes_per_chunk;
+                uint64_t target_chunk_idx = target_idx >> chunk_shift;
+                uint64_t target_sub_idx = target_idx & ((1u << chunk_shift) - 1u);
 
                 uint64_t target_base_addr = chunk_ptrs[target_chunk_idx];
                 OctreeChunk target_chunk = OctreeChunk(target_base_addr);
@@ -157,10 +157,10 @@ void main() {
                 // While this makes sense from a physical standpoint,
                 // it might introduce visual artifacts, so we must be
                 // wary of that.
-                float dx = node_size * node_size;
+                float inv_dx = 1.0 /  (node_size * node_size);
 
-                accum_qw += uintBitsToFloat(leaf_raw.x) * uintBitsToFloat(leaf_raw.y) / dx * dt ;
-                accum_w += uintBitsToFloat(leaf_raw.y) / dx * dt ;
+                accum_qw += uintBitsToFloat(leaf_raw.x) * uintBitsToFloat(leaf_raw.y) * inv_dx * dt ;
+                accum_w += uintBitsToFloat(leaf_raw.y) * inv_dx * dt ;
 
                 t = max(t_exit + (node_size * 0.01), old_t + 1e-5);
                 break;
