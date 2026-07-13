@@ -3,7 +3,7 @@ const Context = @import("./context.zig").Context;
 
 pub fn createDescriptorPool(ctx: *const Context) !vk.DescriptorPool {
     return try ctx.dev.createDescriptorPool(&.{
-        .max_sets = 1,
+        .max_sets = 2,
         .pool_size_count = 3,
         .p_pool_sizes = &[_]vk.DescriptorPoolSize{
             .{ .type = .combined_image_sampler, .descriptor_count = 1 },

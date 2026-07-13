@@ -59,6 +59,8 @@ pub fn main(init: std.process.Init) !void {
     const encoder = result.getEnum(Video.Encoder, "encoder") orelse .x264;
     const hwaccel = result.getEnum(Video.HWAccel, "hwaccel") orelse .none;
 
+    const frame_count = 2; // Number of frames in flight
+
     // --------------------------- Initialize Vulkan -----------------------------------
     std.log.info("Initializing Vulkan...", .{});
 
@@ -67,13 +69,18 @@ pub fn main(init: std.process.Init) !void {
 
     // --------------------------- Output -----------------------------------
 
-    var output_image: Output.OutputImage = undefined;
-    try output_image.create(&ctx, frame_width, frame_height);
-    defer output_image.destroy(&ctx);
+    var output_images: [frame_count]Output.OutputImage = undefined;
+    var output_buffers: [frame_count]Output.OutputBuffer = undefined;
 
-    var output_buffer: Output.OutputBuffer = undefined;
-    try output_buffer.create(&ctx, frame_width, frame_height);
-    defer output_buffer.destroy(&ctx);
+    for (0..frame_count) |i| {
+        try output_images[i].create(&ctx, frame_width, frame_height);
+        try output_buffers[i].create(&ctx, frame_width, frame_height);
+    }
+
+    defer for (0..frame_count) |i| {
+        output_images[i].destroy(&ctx);
+        output_buffers[i].destroy(&ctx);
+    };
 
     // --------------------------- Colormap -----------------------------------
 
@@ -142,24 +149,39 @@ pub fn main(init: std.process.Init) !void {
     const command_pool = try Commands.createCommandPool(&ctx);
     defer Commands.destroyCommandPool(&ctx, command_pool);
 
-    const command_buffer = try Commands.createCommandBuffer(&ctx, command_pool);
+    var command_buffers: [frame_count]vk.CommandBuffer = undefined;
+    var desc_sets: [frame_count]vk.DescriptorSet = undefined;
+    var render_fences: [frame_count]vk.Fence = undefined;
 
-    const set = try Descriptor.updateDescriptorSets(
-        &ctx,
-        desc_pool,
-        desc_layout,
-        output_image.image_view,
-        nearest_sampler,
-        cmap.image_view,
-        chunk_ptr_buffer,
-    );
+    for (0..frame_count) |i| {
+        command_buffers[i] = try Commands.createCommandBuffer(&ctx, command_pool);
+        desc_sets[i] = try Descriptor.updateDescriptorSets(
+            &ctx,
+            desc_pool,
+            desc_layout,
+            output_images[i].image_view,
+            nearest_sampler,
+            cmap.image_view,
+            chunk_ptr_buffer,
+        );
+        render_fences[i] = try ctx.dev.createFence(&.{ .flags = .{ .signaled_bit = true } }, null);
+    }
+
+    defer for (0..frame_count) |i| {
+        ctx.dev.destroyFence(render_fences[i], null);
+    };
 
     // --------------------------- Data Upload & DMA Transfers -----------------------------------
-    std.log.info("Uploading SVO to VRAM...", .{});
 
-    try svo.upload(&ctx, command_buffer, io, data_file, 64);
+    {
+        const command_buffer = try Commands.createCommandBuffer(&ctx, command_pool);
 
-    try cmap.upload(&ctx, command_buffer, io, cmap_file);
+        std.log.info("Uploading SVO to VRAM...", .{});
+
+        try svo.upload(&ctx, command_buffer, io, data_file, 64);
+
+        try cmap.upload(&ctx, command_buffer, io, cmap_file);
+    }
 
     // --------------------------- Push Constants -----------------------------------
 
@@ -194,17 +216,27 @@ pub fn main(init: std.process.Init) !void {
     );
 
     // --------------------------- Main Render Loop -----------------------------------
-    const render_fence = try ctx.dev.createFence(&.{ .flags = .{} }, null);
-    defer ctx.dev.destroyFence(render_fence, null);
 
     const frames = try Path.load(path_file, io, allocator);
     defer allocator.free(frames);
 
-    const num_frames = frames.len;
     for (frames, 0..) |frame, i| {
-        const gpu_start = std.Io.Clock.awake.now(io);
+        const frame_idx = i % 2;
 
-        // 1. Update Camera Info for the current frame
+        _ = try ctx.dev.waitForFences(&.{render_fences[frame_idx]}, .true, std.math.maxInt(u64));
+
+        if (i >= frame_count) {
+            const prev_idx = frame_idx;
+            const pixel_slice: []const u8 = @as([*]const u8, @ptrCast(output_buffers[prev_idx].ptr))[0..output_buffers[prev_idx].size];
+            try Video.write(&proc, io, pixel_slice);
+        }
+
+        try ctx.dev.resetFences(&[_]vk.Fence{render_fences[frame_idx]});
+
+        try ctx.dev.beginCommandBuffer(command_buffers[frame_idx], &.{
+            .flags = .{ .one_time_submit_bit = true },
+        });
+
         const cam_pos = frame[0..3].*;
         const cam_dir = frame[3..6].*;
         const cam_up = frame[6..9].*;
@@ -215,13 +247,8 @@ pub fn main(init: std.process.Init) !void {
         push_constants.camera_right = cam_right;
         push_constants.camera_up = cam_up;
 
-        // 2. Start Recording Commands
-        try ctx.dev.beginCommandBuffer(command_buffer, &.{
-            .flags = .{ .one_time_submit_bit = true },
-        });
-
         ctx.dev.cmdPushConstants(
-            command_buffer,
+            command_buffers[frame_idx],
             pipeline_layout,
             .{ .compute_bit = true },
             0,
@@ -237,7 +264,7 @@ pub fn main(init: std.process.Init) !void {
             .new_layout = .general,
             .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
             .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
-            .image = output_image.image,
+            .image = output_images[frame_idx].image,
             .subresource_range = .{
                 .aspect_mask = .{ .color_bit = true },
                 .base_mip_level = 0,
@@ -247,7 +274,7 @@ pub fn main(init: std.process.Init) !void {
             },
         };
         ctx.dev.cmdPipelineBarrier(
-            command_buffer,
+            command_buffers[frame_idx],
             .{ .top_of_pipe_bit = true },
             .{ .compute_shader_bit = true },
             .{},
@@ -257,19 +284,19 @@ pub fn main(init: std.process.Init) !void {
         );
 
         // 3. Bind Resources and Execute Compute Pipeline
-        ctx.dev.cmdBindPipeline(command_buffer, .compute, pipeline);
+        ctx.dev.cmdBindPipeline(command_buffers[frame_idx], .compute, pipeline);
         ctx.dev.cmdBindDescriptorSets(
-            command_buffer,
+            command_buffers[frame_idx],
             .compute,
             pipeline_layout,
             0,
-            &.{set},
+            &.{desc_sets[frame_idx]},
             &.{},
         );
 
         const group_x: u32 = @intCast((frame_width + 7) / 8);
         const group_y: u32 = @intCast((frame_height + 7) / 8);
-        ctx.dev.cmdDispatch(command_buffer, group_x, group_y, 1);
+        ctx.dev.cmdDispatch(command_buffers[frame_idx], group_x, group_y, 1);
 
         // BARRIER 2: Wait for compute writes to finish, transition image for readback transfer
         const barrier_to_transfer = vk.ImageMemoryBarrier{
@@ -279,7 +306,7 @@ pub fn main(init: std.process.Init) !void {
             .new_layout = .transfer_src_optimal,
             .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
             .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
-            .image = output_image.image,
+            .image = output_images[frame_idx].image,
             .subresource_range = .{
                 .aspect_mask = .{ .color_bit = true },
                 .base_mip_level = 0,
@@ -290,7 +317,7 @@ pub fn main(init: std.process.Init) !void {
         };
 
         ctx.dev.cmdPipelineBarrier(
-            command_buffer,
+            command_buffers[frame_idx],
             .{ .compute_shader_bit = true },
             .{ .transfer_bit = true },
             .{},
@@ -314,10 +341,10 @@ pub fn main(init: std.process.Init) !void {
             .image_extent = vk.Extent3D{ .width = @intCast(frame_width), .height = @intCast(frame_height), .depth = 1 },
         };
         ctx.dev.cmdCopyImageToBuffer(
-            command_buffer,
-            output_image.image,
+            command_buffers[frame_idx],
+            output_images[frame_idx].image,
             .transfer_src_optimal,
-            output_buffer.buffer,
+            output_buffers[frame_idx].buffer,
             &.{copy_region},
         );
 
@@ -327,13 +354,13 @@ pub fn main(init: std.process.Init) !void {
             .dst_access_mask = .{ .host_read_bit = true },
             .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
             .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
-            .buffer = output_buffer.buffer,
+            .buffer = output_buffers[frame_idx].buffer,
             .offset = 0,
             .size = vk.WHOLE_SIZE,
         };
 
         ctx.dev.cmdPipelineBarrier(
-            command_buffer,
+            command_buffers[frame_idx],
             .{ .transfer_bit = true },
             .{ .host_bit = true },
             .{},
@@ -342,35 +369,28 @@ pub fn main(init: std.process.Init) !void {
             &.{},
         );
 
-        try ctx.dev.endCommandBuffer(command_buffer);
+        try ctx.dev.endCommandBuffer(command_buffers[frame_idx]);
 
         // 5. Submit Command Buffer and synchronous wait
         try ctx.dev.queueSubmit(ctx.compute_queue.handle, &[_]vk.SubmitInfo{.{
             .command_buffer_count = 1,
-            .p_command_buffers = &.{command_buffer},
-        }}, render_fence);
-
-        // Block the CPU loop until this single frame is completely done processing on the GPU
-        _ = try ctx.dev.waitForFences(&.{render_fence}, .true, std.math.maxInt(u64));
-        try ctx.dev.resetFences(&[_]vk.Fence{render_fence});
-
-        const gpu_end = std.Io.Clock.awake.now(io);
-
-        const gpu_elapsed: f64 = @floatFromInt(gpu_start.durationTo(gpu_end).nanoseconds);
-
-        const enc_start = std.Io.Clock.awake.now(io);
-
-        // 6. Pipe raw frame data down to FFmpeg
-        const pixel_slice: []const u8 = @as([*]const u8, @ptrCast(output_buffer.ptr))[0..output_buffer.size];
-        try Video.write(&proc, io, pixel_slice);
-
-        const enc_end = std.Io.Clock.awake.now(io);
-
-        const enc_elapsed: f64 = @floatFromInt(enc_start.durationTo(enc_end).nanoseconds);
-
-        std.debug.print("\rRendered frame {d}/{d}. Time spent: GPU: {d:6.6} | ENC: {d:6.6}", .{ i + 1, num_frames, gpu_elapsed / std.time.ns_per_ms, enc_elapsed / std.time.ns_per_ms });
+            .p_command_buffers = &.{command_buffers[frame_idx]},
+        }}, render_fences[frame_idx]);
     }
 
-    std.debug.print("\n", .{});
+    const total_written_in_loop = if (frames.len >= frame_count) frames.len - frame_count else 0;
+    var j = total_written_in_loop;
+
+    while (j < frames.len) : (j += 1) {
+        const frame_idx = j % frame_count;
+
+        _ = try ctx.dev.waitForFences(&.{render_fences[frame_idx]}, .true, std.math.maxInt(u64));
+
+        const pixel_slice: []const u8 = @as([*]const u8, @ptrCast(output_buffers[frame_idx].ptr))[0..output_buffers[frame_idx].size];
+        try Video.write(&proc, io, pixel_slice);
+    }
+
+    try ctx.dev.deviceWaitIdle();
+
     try Video.close_ffmpeg(&proc, init.io);
 }
