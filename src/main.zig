@@ -220,7 +220,17 @@ pub fn main(init: std.process.Init) !void {
     const frames = try Path.load(path_file, io, allocator);
     defer allocator.free(frames);
 
+    const total_frames = frames.len;
+
+    const start_time = std.Io.Clock.awake.now(io);
+
     for (frames, 0..) |frame, i| {
+        std.debug.print("\rRendering frame {}/{} ({d:.1}%)", .{
+            i + 1,
+            total_frames,
+            (@as(f64, @floatFromInt(i + 1)) / @as(f64, @floatFromInt(total_frames))) * 100.0,
+        });
+
         const frame_idx = i % 2;
 
         _ = try ctx.dev.waitForFences(&.{render_fences[frame_idx]}, .true, std.math.maxInt(u64));
@@ -393,4 +403,14 @@ pub fn main(init: std.process.Init) !void {
     try ctx.dev.deviceWaitIdle();
 
     try Video.close_ffmpeg(&proc, init.io);
+
+    const end_time = std.Io.Clock.awake.now(io);
+    const total_elapsed_s = @as(f64, @floatFromInt(start_time.durationTo(end_time).nanoseconds)) / std.time.ns_per_s;
+    const average_fps = @as(f64, @floatFromInt(frames.len)) / total_elapsed_s;
+    const ms_per_frame = (total_elapsed_s / @as(f64, @floatFromInt(frames.len))) * std.time.ms_per_s;
+
+    std.debug.print("\n=== Performance Summary ===\n", .{});
+    std.debug.print("Total Time:     {d:.2} seconds\n", .{total_elapsed_s});
+    std.debug.print("Average FPS:    {d:.2}\n", .{average_fps});
+    std.debug.print("Avg Frame Time: {d:.2} ms\n", .{ms_per_frame});
 }
