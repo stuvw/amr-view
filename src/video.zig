@@ -2,13 +2,13 @@ const std = @import("std");
 const Io = std.Io;
 
 pub const Encoder = enum { x264, x265, av1 };
-pub const HWAccel = enum { none, nvenc, amf, qsv };
+pub const HWAccel = enum { none, nvenc, amf, qsv, vtb };
 
 pub fn write(process: *std.process.Child, io: Io, buffer: []const u8) !void {
     try process.stdin.?.writeStreamingAll(io, buffer);
 }
 
-pub fn open_ffmpeg(
+pub fn open(
     io: Io,
     allocator: std.mem.Allocator,
     width: usize,
@@ -64,6 +64,11 @@ pub fn open_ffmpeg(
             .x265 => &.{ "-c:v", "hevc_qsv", "-preset", "veryslow", "-global_quality", "22" },
             .av1 => &.{ "-c:v", "av1_qsv", "-preset", "veryslow", "-global_quality", "22" },
         },
+        .vtb => switch (encoder) {
+            .x264 => &.{ "-c:v", "h264_videotoolbox" },
+            .x265 => &.{ "-c:v", "hevc_videotoolbox" },
+            .av1 => return error.UnsupportedEncoder,
+        },
     };
 
     var args: std.ArrayList([]const u8) = .empty;
@@ -84,7 +89,7 @@ pub fn open_ffmpeg(
     );
 }
 
-pub fn close_ffmpeg(
+pub fn close(
     process: *std.process.Child,
     io: Io,
 ) !void {

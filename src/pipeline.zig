@@ -29,14 +29,14 @@ pub fn createComputePipeline(
     layout: vk.PipelineLayout,
 ) !vk.Pipeline {
 
-    // ------------------------ Shader Module -------------------------------------
+    // ---------------------- Shader Module -----------------------
     const shader_module = try ctx.dev.createShaderModule(&.{
         .code_size = shader_src.len,
         .p_code = @ptrCast(&shader_src),
     }, null);
     defer ctx.dev.destroyShaderModule(shader_module, null);
 
-    // ---------------------------- Pipeline Configuration ----------------------------------------
+    // ------------------ Pipeline Configuration ------------------
     const create_info = [_]vk.ComputePipelineCreateInfo{
         .{
             .flags = .{},

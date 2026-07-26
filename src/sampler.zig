@@ -2,7 +2,7 @@ const vk = @import("vulkan");
 const Context = @import("./context.zig").Context;
 
 /// Create nearest sampler used to sample the colormap in the coloring stage
-pub fn createSampler(ctx: *const Context) !vk.Sampler {
+pub fn create(ctx: *const Context) !vk.Sampler {
     return try ctx.dev.createSampler(&.{
         .mag_filter = .nearest,
         .min_filter = .nearest,
@@ -22,6 +22,6 @@ pub fn createSampler(ctx: *const Context) !vk.Sampler {
     }, null);
 }
 
-pub fn destroySampler(ctx: *const Context, sampler: vk.Sampler) void {
+pub fn destroy(ctx: *const Context, sampler: vk.Sampler) void {
     ctx.dev.destroySampler(sampler, null);
 }

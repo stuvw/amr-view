@@ -8,7 +8,7 @@ const enable_validation_layers = switch (builtin.mode) {
     .ReleaseFast, .ReleaseSmall => false,
 };
 
-const required_layer_names = if (enable_validation_layers) [_][*:0]const u8{"VK_LAYER_KHRONOS_validation"} else [_][*:0]const u8{};
+const required_layer_names = if (false) [_][*:0]const u8{"VK_LAYER_KHRONOS_validation"} else [_][*:0]const u8{};
 
 const required_device_extensions = [_][*:0]const u8{};
 
@@ -53,7 +53,7 @@ pub const Context = struct {
 
         const lib_name = switch (builtin.os.tag) {
             .windows => "vulkan-1.dll",
-            .macos => "libvulkan.dylib", // Will have to make a MoltenVK port
+            .macos => "/usr/local/lib/libMoltenVK.dylib",
             else => "libvulkan.so.1", // Linux/BSD
         };
 
@@ -85,7 +85,7 @@ pub const Context = struct {
                 .application_version = vk.makeApiVersion(0, 0, 0, 0).toU32(),
                 .p_engine_name = app_name,
                 .engine_version = vk.makeApiVersion(0, 0, 0, 0).toU32(),
-                .api_version = vk.API_VERSION_1_3.toU32(),
+                .api_version = vk.API_VERSION_1_2.toU32(),
             },
             .enabled_layer_count = required_layer_names.len,
             .pp_enabled_layer_names = (&required_layer_names),
@@ -133,6 +133,10 @@ pub const Context = struct {
         self.mem_props = self.instance.getPhysicalDeviceMemoryProperties(self.pdev);
 
         self.queryDeviceLimits();
+
+        std.log.info("Using device: {s}", .{deviceName(&self)});
+        std.log.info("Max Alloc Size: {Bi:.2}", .{self.max_alloc_size});
+        std.log.info("VRAM size: {Bi:.2}", .{self.total_vram});
 
         return self;
     }

@@ -96,7 +96,7 @@ pub fn parseArgs(parser: *args.ArgumentParser, init: std.process.Init) !args.Par
 
     try parser.addOption("hwaccel", .{
         .help = "Select hardware acceleration. See README for more details",
-        .choices = &.{ "none", "nvenc", "amf", "qsv" },
+        .choices = &.{ "none", "nvenc", "amf", "qsv", "vtb" },
         .default = "none",
         .value_type = .choice,
     });

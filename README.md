@@ -28,8 +28,6 @@ $$\log_{10}\left(\frac{ray\_{qty}}{ray\_w}\right)$$
 
 This value is mapped through a user-specified 256-color RGBA colormap (supporting custom underflow, overflow, and error colors) and written to the final frame.
 
-*Note: Frames are streamed directly to FFmpeg in real time. Double buffering is planned to decouple GPU rendering from video encoding.*
-
 ## Data format
 
 ### Dataset format (`.amrv`)
@@ -46,7 +44,7 @@ A plain text file where each line defines a camera state using 9 space-separated
 
 ### Colormap format
 
-A binary file containing 256 structural RGBA byte-quartets (1024 bytes total). You can generate compatible colormaps from matplotlib profiles using the following [python script](./tools/create_colormap.py). You can also make your own, whacky one, with rainbows and everything :) .
+A binary file containing 256 structural RGBA byte-quartets (1024 bytes total). You can generate compatible colormaps from matplotlib profiles using the following [python script](./tools/create_colormap.py). You can also make your own whacky one :).
 
 ## Dependencies / Requirements
 
@@ -110,11 +108,10 @@ The binary will be generated at `./zig-out/bin/amr-view` .
 | --root-size | 1.0 | Edge size of the root node of the SVO |
 | --root-pos | 0,0,0 | Center position of the root of the SVO |
 | --encoder | x264 | Video codec used to encode the output video. Choices: x264, x265, av1 |
-| --hwaccel | none | Use GPU hardware video acceleration. GPU must support requested encoder. Choices: none, nvenc, amf, qsv |
+| --hwaccel | none | Use GPU hardware video acceleration. GPU must support requested encoder. Choices: none, nvenc, amf, qsv, vtb |
 
 ## Roadmap (Coming soon™)
 
- - [] Double-buffered frame streaming to eliminate FFmpeg encoding stalls
  - [] Support for arbitrary colormap sizes for increased visual depth
  - [] VR 180/360 rendering support
 

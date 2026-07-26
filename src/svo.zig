@@ -19,17 +19,6 @@ pub const OctreeNode = extern union {
     raw: u64,
 };
 
-pub const SVOFileMetadata = extern struct {
-    version: [3]u8,
-    pad: [5]u8,
-    num_nodes: u64,
-    num_branches: u64,
-    num_leaves: u64,
-    max_depth: u64,
-    root_size: f32,
-    root_pos: [3]f32,
-};
-
 pub const SVOBuffer = struct {
     size: usize,
     buffer: vk.Buffer,
@@ -38,7 +27,6 @@ pub const SVOBuffer = struct {
 
     pub fn create(self: *@This(), ctx: *const Context, size: usize) !void {
         self.size = size;
-        std.log.debug("Creating octree chunk of size {Bi:.2}", .{size});
         self.buffer = try ctx.dev.createBuffer(&.{
             .size = size,
             .usage = .{
@@ -137,9 +125,6 @@ pub const SVOBuffers = struct {
             num_buffers += 1;
         }
 
-        std.log.debug("Attempting to read {Bi:.2} from file", .{size});
-        std.log.debug("Created {d} octree chunks", .{num_buffers});
-
         self.buffers = try allocator.alloc(SVOBuffer, num_buffers);
 
         for (0..num_full_buffers) |i| {
@@ -192,29 +177,141 @@ pub const SVOBuffers = struct {
     }
 };
 
-pub fn getSVOMetadata(io: Io, filename: []const u8) !SVOFileMetadata {
-    const cwd = Io.Dir.cwd();
+pub const SVOFileMetadata = struct {
+    version: extern struct { major: u8, minor: u8, patch: u8 },
+    num_nodes: u64,
+    num_branches: u64,
+    num_leaves: u64,
+    max_depth: u64,
+    root_size: f32,
+    root_pos: [3]f32,
+    simulation_name: ?[]u8,
+    field: ?[]u8,
+    weight: ?[]u8,
+    header_size: u64,
 
-    const file = try cwd.openFile(io, filename, .{ .mode = .read_only });
-    defer file.close(io);
+    pub fn get(self: *@This(), allocator: std.mem.Allocator, io: Io, filename: []const u8) !void {
+        if (!std.mem.endsWith(u8, filename, ".amrv")) {
+            return error.InvalidFormat;
+        }
 
-    var reader = file.reader(io, &.{});
+        self.simulation_name = null;
+        self.field = null;
+        self.weight = null;
 
-    const magic = "AMR-VIEW";
+        const cwd = Io.Dir.cwd();
 
-    const header_size = magic.len + @sizeOf(SVOFileMetadata);
+        const file = try cwd.openFile(io, filename, .{ .mode = .read_only });
+        defer file.close(io);
 
-    var header_buffer: [header_size]u8 = undefined;
+        var reader = file.reader(io, &.{});
+        var interface = &reader.interface;
 
-    const num_bytes_read = try reader.interface.readSliceShort(&header_buffer);
+        const magic = "AMR-VIEW";
+        var magic_buf: [magic.len]u8 = undefined;
 
-    if (num_bytes_read != header_size) {
-        return error.InvalidFormat;
+        try interface.readSliceAll(&magic_buf);
+
+        if (!std.mem.eql(u8, magic, &magic_buf)) {
+            return error.InvalidFormat;
+        }
+
+        try interface.readSliceAll(std.mem.asBytes(&self.version));
+
+        switch (self.version.major) {
+            0 => {
+                try switch (self.version.minor) {
+                    1 => {
+                        try interface.discardAll(5);
+                        try interface.readSliceAll(std.mem.asBytes(&self.num_nodes));
+                        try interface.readSliceAll(std.mem.asBytes(&self.num_branches));
+                        try interface.readSliceAll(std.mem.asBytes(&self.num_leaves));
+                        try interface.readSliceAll(std.mem.asBytes(&self.max_depth));
+                        try interface.readSliceAll(std.mem.asBytes(&self.root_size));
+                        try interface.readSliceAll(std.mem.asBytes(&self.root_pos));
+                        self.header_size = reader.pos;
+                    },
+                    2 => {
+                        try interface.readSliceAll(std.mem.asBytes(&self.num_nodes));
+                        try interface.readSliceAll(std.mem.asBytes(&self.num_branches));
+                        try interface.readSliceAll(std.mem.asBytes(&self.num_leaves));
+                        try interface.readSliceAll(std.mem.asBytes(&self.max_depth));
+                        try interface.readSliceAll(std.mem.asBytes(&self.root_size));
+                        try interface.readSliceAll(std.mem.asBytes(&self.root_pos));
+
+                        var sim_name_size: u64 = undefined;
+                        try interface.readSliceAll(std.mem.asBytes(&sim_name_size));
+                        self.simulation_name.? = try allocator.alloc(u8, sim_name_size);
+                        try interface.readSliceAll(self.simulation_name.?);
+
+                        var field_size: u64 = undefined;
+                        try interface.readSliceAll(std.mem.asBytes(&field_size));
+                        self.field.? = try allocator.alloc(u8, field_size);
+                        try interface.readSliceAll(self.field.?);
+
+                        var weight_size: u64 = undefined;
+                        try interface.readSliceAll(std.mem.asBytes(&weight_size));
+                        self.weight.? = try allocator.alloc(u8, weight_size);
+                        try interface.readSliceAll(self.weight.?);
+                    },
+                    else => error.UnsupportedFile,
+                };
+            },
+            else => return error.UnsupportedFile,
+        }
+
+        const stat = try file.stat(io);
+
+        if (stat.size != self.header_size + self.num_nodes * @sizeOf(OctreeNode)) {
+            return error.CorruptedFile;
+        }
     }
 
-    if (!std.mem.eql(u8, magic, header_buffer[0..magic.len])) {
-        return error.InvalidFormat;
+    pub fn destroy(self: *@This(), allocator: std.mem.Allocator) void {
+        if (self.simulation_name) |name| {
+            allocator.free(name);
+        }
+        if (self.field) |f| {
+            allocator.free(f);
+        }
+        if (self.weight) |w| {
+            allocator.free(w);
+        }
     }
 
-    return std.mem.bytesToValue(SVOFileMetadata, header_buffer[magic.len..]);
-}
+    pub fn print(self: *@This()) void {
+        std.log.info("File version: {d}.{d}.{d}", .{
+            self.version.major,
+            self.version.minor,
+            self.version.patch,
+        });
+        std.log.info("{d} nodes ({d} branches + {d} leaves)", .{
+            self.num_nodes,
+            self.num_branches,
+            self.num_leaves,
+        });
+        std.log.info("Cutout center: ({d},{d},{d})", .{
+            self.root_pos[0],
+            self.root_pos[1],
+            self.root_pos[2],
+        });
+        std.log.info(
+            "Cutout edge width: {d}",
+            .{self.root_size},
+        );
+        std.log.info(
+            "Max node depth: {d}",
+            .{self.max_depth},
+        );
+        if (self.simulation_name) |name| {
+            std.log.info("Simulation: {s}", .{name});
+        }
+        if (self.field) |field| {
+            std.log.info("Field: {s}", .{field});
+        }
+        if (self.weight) |weight| {
+            std.log.info("Weight: {s}", .{weight});
+        }
+        std.log.info("Header size: {Bi}", .{self.header_size});
+    }
+};

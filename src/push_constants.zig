@@ -1,6 +1,3 @@
-const vk = @import("vulkan");
-const Context = @import("./context.zig").Context;
-
 pub const PushConstant = extern struct {
     camera_pos: [3]f32,
     pad_1: u8 = undefined,

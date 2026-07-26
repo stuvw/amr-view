@@ -2,13 +2,16 @@ const vk = @import("vulkan");
 const Context = @import("./context.zig").Context;
 
 pub fn createDescriptorPool(ctx: *const Context) !vk.DescriptorPool {
+    // Since we are now using double-buffering, we need to allocate 2x of everything
+    const max_sets = 2;
+
     return try ctx.dev.createDescriptorPool(&.{
-        .max_sets = 2,
+        .max_sets = max_sets,
         .pool_size_count = 3,
         .p_pool_sizes = &[_]vk.DescriptorPoolSize{
-            .{ .type = .combined_image_sampler, .descriptor_count = 1 },
-            .{ .type = .storage_image, .descriptor_count = 1 },
-            .{ .type = .storage_buffer, .descriptor_count = 1 },
+            .{ .type = .combined_image_sampler, .descriptor_count = max_sets },
+            .{ .type = .storage_image, .descriptor_count = max_sets },
+            .{ .type = .storage_buffer, .descriptor_count = max_sets },
         },
     }, null);
 }

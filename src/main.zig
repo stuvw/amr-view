@@ -23,7 +23,7 @@ pub fn main(init: std.process.Init) !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    // --------------------------- Arguments / Constants -----------------------------------
+    // ------------------ Arguments / Constants -------------------
 
     var parser = try args.ArgumentParser.init(allocator, .{
         .name = "amr-view",
@@ -61,13 +61,13 @@ pub fn main(init: std.process.Init) !void {
 
     const frame_count = 2; // Number of frames in flight
 
-    // --------------------------- Initialize Vulkan -----------------------------------
+    // -------------------- Initialize Vulkan ---------------------
     std.log.info("Initializing Vulkan...", .{});
 
     const ctx = try Context.init(allocator, "amr-view");
     defer ctx.deinit();
 
-    // --------------------------- Output -----------------------------------
+    // -------------------------- Output --------------------------
 
     var output_images: [frame_count]Output.OutputImage = undefined;
     var output_buffers: [frame_count]Output.OutputBuffer = undefined;
@@ -82,25 +82,26 @@ pub fn main(init: std.process.Init) !void {
         output_buffers[i].destroy(&ctx);
     };
 
-    // --------------------------- Colormap -----------------------------------
+    // ------------------------- Colormap -------------------------
 
     var cmap: Colormap.ColormapImage = undefined;
     try cmap.create(&ctx, 256);
     defer cmap.destroy(&ctx);
 
-    const nearest_sampler = try Sampler.createSampler(&ctx);
-    defer Sampler.destroySampler(&ctx, nearest_sampler);
+    const nearest_sampler = try Sampler.create(&ctx);
+    defer Sampler.destroy(&ctx, nearest_sampler);
 
-    // --------------------------- Sparse Voxel Octree -----------------------------------
+    // ------------------- Sparse Voxel Octree --------------------
 
-    const metadata = try SVO.getSVOMetadata(io, data_file);
+    var metadata: SVO.SVOFileMetadata = undefined;
+    try metadata.get(allocator, io, data_file);
+    defer metadata.destroy(allocator);
+    metadata.print();
 
     var svo: SVO.SVOBuffers = undefined;
     const chunk_size_bytes: u64 = @as(u64, 1) << @intCast(std.math.log2(ctx.max_alloc_size));
     try svo.create(&ctx, allocator, metadata.num_nodes, chunk_size_bytes);
     defer svo.destroy(&ctx, allocator);
-
-    // --------------------------- SVO chunking -----------------------------------
 
     var chunk_ptrs = try allocator.alloc(u64, svo.buffers.len);
     defer allocator.free(chunk_ptrs);
@@ -128,7 +129,7 @@ pub fn main(init: std.process.Init) !void {
 
     @memcpy(@as([*]u8, @ptrCast(chunk_ptr_buffer_ptr)), std.mem.sliceAsBytes(chunk_ptrs));
 
-    // --------------------------- Shader Binding Layouts -----------------------------------
+    // ------------------ Shader Binding Layouts ------------------
 
     const desc_pool = try Descriptor.createDescriptorPool(&ctx);
     defer Descriptor.destroyDescriptorPool(&ctx, desc_pool);
@@ -136,7 +137,7 @@ pub fn main(init: std.process.Init) !void {
     const desc_layout = try Descriptor.createDescriptorSetLayout(&ctx);
     defer Descriptor.destroyDescriptorSetLayout(&ctx, desc_layout);
 
-    // --------------------------- Pipelines & Layouts -----------------------------------
+    // ------------------- Pipelines & Layouts --------------------
 
     const pipeline_layout = try Pipeline.createPipelineLayout(&ctx, desc_layout, @sizeOf(Constants.PushConstant));
     defer Pipeline.destroyPipelineLayout(&ctx, pipeline_layout);
@@ -144,7 +145,7 @@ pub fn main(init: std.process.Init) !void {
     const pipeline = try Pipeline.createComputePipeline(&ctx, pipeline_layout);
     defer Pipeline.destroyPipeline(&ctx, pipeline);
 
-    // --------------------------- Commands & Synchronization -----------------------------------
+    // ---------------- Commands & Synchronization ----------------
 
     const command_pool = try Commands.createCommandPool(&ctx);
     defer Commands.destroyCommandPool(&ctx, command_pool);
@@ -171,19 +172,19 @@ pub fn main(init: std.process.Init) !void {
         ctx.dev.destroyFence(render_fences[i], null);
     };
 
-    // --------------------------- Data Upload & DMA Transfers -----------------------------------
+    // '--------------- Data Upload & DMA Transfers ----------------
 
     {
         const command_buffer = try Commands.createCommandBuffer(&ctx, command_pool);
 
         std.log.info("Uploading SVO to VRAM...", .{});
 
-        try svo.upload(&ctx, command_buffer, io, data_file, 64);
+        try svo.upload(&ctx, command_buffer, io, data_file, metadata.header_size);
 
         try cmap.upload(&ctx, command_buffer, io, cmap_file);
     }
 
-    // --------------------------- Push Constants -----------------------------------
+    // ---------------------- Push Constants ----------------------
 
     var push_constants = Constants.PushConstant{
         // Camera info
@@ -203,8 +204,8 @@ pub fn main(init: std.process.Init) !void {
         .chunk_shift = std.math.log2(chunk_size_bytes / @sizeOf(SVO.OctreeNode)),
     };
 
-    // --------------------------- Initialize Video Stream -----------------------------------
-    var proc = try Video.open_ffmpeg(
+    // ----------------- Initialize Video Stream ------------------
+    var proc = try Video.open(
         init.io,
         allocator,
         frame_width,
@@ -215,7 +216,7 @@ pub fn main(init: std.process.Init) !void {
         hwaccel,
     );
 
-    // --------------------------- Main Render Loop -----------------------------------
+    // --------------------- Main Render Loop ---------------------
 
     const frames = try Path.load(path_file, io, allocator);
     defer allocator.free(frames);
@@ -231,7 +232,7 @@ pub fn main(init: std.process.Init) !void {
             (@as(f64, @floatFromInt(i + 1)) / @as(f64, @floatFromInt(total_frames))) * 100.0,
         });
 
-        const frame_idx = i % 2;
+        const frame_idx = i % frame_count;
 
         _ = try ctx.dev.waitForFences(&.{render_fences[frame_idx]}, .true, std.math.maxInt(u64));
 
@@ -388,6 +389,7 @@ pub fn main(init: std.process.Init) !void {
         }}, render_fences[frame_idx]);
     }
 
+    // Flush remaining frames
     const total_written_in_loop = if (frames.len >= frame_count) frames.len - frame_count else 0;
     var j = total_written_in_loop;
 
@@ -402,7 +404,7 @@ pub fn main(init: std.process.Init) !void {
 
     try ctx.dev.deviceWaitIdle();
 
-    try Video.close_ffmpeg(&proc, init.io);
+    try Video.close(&proc, init.io);
 
     const end_time = std.Io.Clock.awake.now(io);
     const total_elapsed_s = @as(f64, @floatFromInt(start_time.durationTo(end_time).nanoseconds)) / std.time.ns_per_s;
