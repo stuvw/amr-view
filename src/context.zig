@@ -8,7 +8,7 @@ const enable_validation_layers = switch (builtin.mode) {
     .ReleaseFast, .ReleaseSmall => false,
 };
 
-const required_layer_names = if (false) [_][*:0]const u8{"VK_LAYER_KHRONOS_validation"} else [_][*:0]const u8{};
+const required_layer_names = if (enable_validation_layers) [_][*:0]const u8{"VK_LAYER_KHRONOS_validation"} else [_][*:0]const u8{};
 
 const required_device_extensions = [_][*:0]const u8{};
 
@@ -53,7 +53,7 @@ pub const Context = struct {
 
         const lib_name = switch (builtin.os.tag) {
             .windows => "vulkan-1.dll",
-            .macos => "/usr/local/lib/libMoltenVK.dylib",
+            .macos => "/usr/local/lib/libMoltenVK.dylib", // Should work for now...
             else => "libvulkan.so.1", // Linux/BSD
         };
 

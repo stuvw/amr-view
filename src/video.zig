@@ -80,13 +80,16 @@ pub fn open(
 
     try args.append(allocator, video_file);
 
-    return try std.process.spawn(
-        io,
-        .{
-            .argv = args.items,
-            .stdin = .pipe,
+    return std.process.spawn(io, .{
+        .argv = args.items,
+        .stdin = .pipe,
+    }) catch |err| switch (err) {
+        error.FileNotFound => {
+            std.log.err("FFmpeg not found. Make sure it is installed and on PATH", .{});
+            return err;
         },
-    );
+        else => return err,
+    };
 }
 
 pub fn close(

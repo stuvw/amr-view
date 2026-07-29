@@ -152,10 +152,8 @@ if __name__ == "__main__":
     req_center = np.array(args.center)
     req_size = args.size
 
-    req_level = int(np.round(np.log2(1.0 / req_size)))
-    level = min(max(0, req_level), max_level)
     min_dx = 1.0 / (2 ** max_level)
-    root_size = 1.0 / (2 ** level)
+    root_size = (np.floor(req_size / min_dx) + 0.5 ) * min_dx
 
     root_center = (np.floor(req_center / min_dx) + 0.5) * min_dx
     left_edge = root_center - root_size / 2

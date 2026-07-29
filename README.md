@@ -1,5 +1,11 @@
 # AMR-view
 
+<video alt="Example render of Obelisk simulation. Credit goes to Maxime Trebitsch." style="width: 90%; margin: auto; display: flex;" controls>
+  <source src="./examples/vid_example_FHD.mp4" type="video/mp4">
+</video>
+
+---
+
 GPU-accelerated volume renderer for large particle/AMR (Adaptive Mesh Refinement) datasets. Renders fly-through videos along a camera path using Vulkan compute ray tracing through a Sparse Voxel Octree (SVO).
 
 Since `amr-view` relies entirely on compute shaders rather than a traditional rasterization pipeline, it can run headlessly on server-grade hardware (e.g., NVIDIA H100) without a display attached.
@@ -50,12 +56,23 @@ A binary file containing 256 structural RGBA byte-quartets (1024 bytes total). Y
 
 ### Build dependencies
 
-- [Zig Compiler](https://ziglang.org/) (v0.16.0 or compatible) 
+- [Zig Compiler](https://ziglang.org/learn/getting-started/) (v0.16.0 or compatible)
+
+    - MacOS : `brew install zig`
+    - Arch Linux : `sudo pacman -S zig`
+    - Ubuntu / Debian : `sudo apt install zig`
+    - Fedora / RHEL : `sudo dnf install -y zig`
 
 ### Runtime dependencies
 
 - A working [Vulkan](https://www.vulkan.org/) driver (v1.2 or later)
-- [FFmpeg](https://www.ffmpeg.org/) installed and on PATH.
+    - MacOS : `brew install molten-vk`
+    - Linux : Installation instructions vary greatly based on the distro and the hardware, see distro-specific instructions.
+- [FFmpeg](https://www.ffmpeg.org/) installed and on `PATH`.
+    - MacOS : `brew install ffmpeg`
+    - Arch Linux : `sudo pacman -S ffmpeg`
+    - Ubuntu / Debian : `sudo apt install ffmpeg`
+    - Fedora / RHEL : `sudo dnf install -y ffmpeg` 
 
 ## Installation
 
@@ -78,13 +95,11 @@ The binary will be generated at `./zig-out/bin/amr-view` .
 ### Command example
 
 ```bash
-./amr-view --data-file simulation.amrv \
-           --path-file path.txt \
-           --colormap-file inferno.bin \
-           --video-file export.mkv \
-           --width 3840 \
-           --height 2160 \
-           --framerate 60 \
+./amr-view --data-file ./examples/Obelisk_small.amrv \
+           --path-file ./examples/path_circle.txt \
+           --colormap-file ./examples/inferno.cmap \
+           --video-file ./examples/export.mkv \
+           --framerate 30 \
 ```
 
 
@@ -112,11 +127,23 @@ The binary will be generated at `./zig-out/bin/amr-view` .
 
 ## Roadmap (Coming soon™)
 
- - [] Support for arbitrary colormap sizes for increased visual depth
  - [] VR 180/360 rendering support
 
 ## Performance
 
+<img src="./examples/performance.png" alt="Rendering performance comparison" style="width: 90%; margin: auto; display: flex;"/>
 
+<br>
+
+The [rasterizer](https://github.com/stuvw/RenderPath/) quickly gets bottlenecked by the fixed-function rasterization hardware, and fails to render past 4 GiB files, due to a design limitaion.
+
+Meanwhile, the current approach stays quite steady up to around a billion cells, and performance slowly decreases. Currently, the code supports a maximum file size of 64 GiB, but it would be possible to push that limit back even further.
 
 ## Credits / Thanks
+
+- Stéphane Rouberol for his recurrent help
+- Corentin Cadiou, designed original rasterization renderer, co-investigator of the Megatron simulation 
+- Maxime Trebitsch, primary investigator of the Obelisk simulation
+- San Han, primary investigator the New Cluster simulation
+- Christophe Pichon, primary investiagtor of the New Horizon simulation
+- Yohan Dubois, co-investiagtor of the New Horizon simulation
