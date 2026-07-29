@@ -1,8 +1,6 @@
 # AMR-view
 
-<video alt="Example render of Obelisk simulation. Credit goes to Maxime Trebitsch." style="width: 90%; margin: auto; display: flex;" controls>
-  <source src="./examples/vid_example_FHD.mp4" type="video/mp4">
-</video>
+https://github.com/user-attachments/assets/bfdd92e9-6e41-4b5b-a9c7-7997f4bf2c3a
 
 ---
 
