@@ -143,5 +143,5 @@ Meanwhile, the current approach stays quite steady up to around a billion cells,
 - Corentin Cadiou, designed original rasterization renderer, co-investigator of the Megatron simulation 
 - Maxime Trebitsch, primary investigator of the Obelisk simulation
 - San Han, primary investigator the New Cluster simulation
-- Christophe Pichon, primary investiagtor of the New Horizon simulation
-- Yohan Dubois, co-investiagtor of the New Horizon simulation
+- Yohan Dubois, primary investiagtor of the New Horizon simulation
+- Christophe Pichon, co-investiagtor of the New Horizon simulation
