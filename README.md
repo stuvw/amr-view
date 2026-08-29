@@ -97,7 +97,7 @@ The binary will be generated at `./zig-out/bin/amr-view` .
            --path-file ./examples/path_circle.txt \
            --colormap-file ./examples/inferno.cmap \
            --video-file ./examples/export.mkv \
-           --framerate 30 \
+           --framerate 30
 ```
 
 

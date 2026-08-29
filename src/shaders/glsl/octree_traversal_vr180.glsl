@@ -76,20 +76,14 @@ void main() {
     vec2 uv = (vec2(pixel_coords) + 0.5) / vec2(img_size);
     vec2 p = uv * 2.0 - 1.0;
 
-    float r = length(p);
+    float longitude = p.x * HALF_PI;
+    float latitude  = p.y * HALF_PI;
 
-    if (r > 1.0) {
-        imageStore(out_image, pixel_coords, bad_color);
-        return;
-    }
-
-    float angle_from_zenith = r * HALF_PI;
-    float azimuth = atan(p.y, p.x);
-
-    float sin_a = sin(angle_from_zenith);
-    float cos_a = cos(angle_from_zenith);
-
-    vec3 local_dir = vec3(sin_a * cos(azimuth), sin_a * sin(azimuth), cos_a);
+    vec3 local_dir = vec3(
+        sin(longitude) * cos(latitude),
+        sin(latitude),
+        cos(longitude) * cos(latitude)
+    );
 
     vec3 ray_dir = normalize(
         local_dir.x * camera_right + 

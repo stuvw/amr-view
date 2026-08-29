@@ -35,7 +35,11 @@ pub fn load(cam_file: []const u8, io: Io, allocator: std.mem.Allocator) ![][9]f3
 
     try reader.interface.readSliceAll(raw);
 
-    const line_count = std.mem.count(u8, raw, "\n");
+    var line_count = std.mem.count(u8, raw, "\n");
+
+    if (!std.mem.endsWith(u8, raw, "\n")) {
+        line_count += 1;
+    }
 
     const path = try allocator.alloc([9]f32, line_count);
 

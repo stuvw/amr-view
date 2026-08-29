@@ -26,8 +26,6 @@ fn vulkan_loader(instance: vk.Instance, proc_name: [*:0]const u8) callconv(.c) v
 }
 
 pub const Context = struct {
-    pub const CommandBuffer = vk.CommandBufferProxy;
-
     allocator: Allocator,
 
     vkb: BaseWrapper,

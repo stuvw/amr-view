@@ -19,7 +19,7 @@ const Math = @import("./math.zig");
 pub fn main(init: std.process.Init) !void {
     const io = init.io;
 
-    var gpa = std.heap.DebugAllocator(.{}){};
+    var gpa = std.heap.DebugAllocator(.{}).init;
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
@@ -59,7 +59,7 @@ pub fn main(init: std.process.Init) !void {
     const encoder = result.getEnum(Video.Encoder, "encoder") orelse .x264;
     const hwaccel = result.getEnum(Video.HWAccel, "hwaccel") orelse .none;
 
-    const frame_count = 2; // Number of frames in flight
+    const frames_in_flight = 2;
 
     // -------------------- Initialize Vulkan ---------------------
     std.log.info("Initializing Vulkan...", .{});
@@ -69,15 +69,15 @@ pub fn main(init: std.process.Init) !void {
 
     // -------------------------- Output --------------------------
 
-    var output_images: [frame_count]Output.OutputImage = undefined;
-    var output_buffers: [frame_count]Output.OutputBuffer = undefined;
+    var output_images: [frames_in_flight]Output.OutputImage = undefined;
+    var output_buffers: [frames_in_flight]Output.OutputBuffer = undefined;
 
-    for (0..frame_count) |i| {
+    for (0..frames_in_flight) |i| {
         try output_images[i].create(&ctx, frame_width, frame_height);
         try output_buffers[i].create(&ctx, frame_width, frame_height);
     }
 
-    defer for (0..frame_count) |i| {
+    defer for (0..frames_in_flight) |i| {
         output_images[i].destroy(&ctx);
         output_buffers[i].destroy(&ctx);
     };
@@ -103,14 +103,8 @@ pub fn main(init: std.process.Init) !void {
     try svo.create(&ctx, allocator, metadata.num_nodes, chunk_size_bytes);
     defer svo.destroy(&ctx, allocator);
 
-    var chunk_ptrs = try allocator.alloc(u64, svo.buffers.len);
-    defer allocator.free(chunk_ptrs);
-    for (svo.buffers, 0..) |b, i| {
-        chunk_ptrs[i] = b.ptr;
-    }
-
     const chunk_ptr_buffer = try ctx.dev.createBuffer(&.{
-        .size = @sizeOf(u64) * chunk_ptrs.len,
+        .size = @sizeOf(u64) * svo.buffers.len,
         .usage = .{ .storage_buffer_bit = true },
         .sharing_mode = .exclusive,
     }, null);
@@ -124,10 +118,12 @@ pub fn main(init: std.process.Init) !void {
     defer ctx.dev.freeMemory(chunk_ptr_buffer_mem, null);
 
     try ctx.dev.bindBufferMemory(chunk_ptr_buffer, chunk_ptr_buffer_mem, 0);
-    const chunk_ptr_buffer_ptr = try ctx.dev.mapMemory(chunk_ptr_buffer_mem, 0, @sizeOf(u64) * chunk_ptrs.len, .{});
+    const chunk_ptr_buffer_ptr = try ctx.dev.mapMemory(chunk_ptr_buffer_mem, 0, @sizeOf(u64) * svo.buffers.len, .{});
     defer ctx.dev.unmapMemory(chunk_ptr_buffer_mem);
 
-    @memcpy(@as([*]u8, @ptrCast(chunk_ptr_buffer_ptr)), std.mem.sliceAsBytes(chunk_ptrs));
+    for (svo.buffers, @as([*]u64, @ptrCast(@alignCast(chunk_ptr_buffer_ptr)))) |src, *dest| {
+        dest.* = src.ptr;
+    }
 
     // ------------------ Shader Binding Layouts ------------------
 
@@ -150,11 +146,11 @@ pub fn main(init: std.process.Init) !void {
     const command_pool = try Commands.createCommandPool(&ctx);
     defer Commands.destroyCommandPool(&ctx, command_pool);
 
-    var command_buffers: [frame_count]vk.CommandBuffer = undefined;
-    var desc_sets: [frame_count]vk.DescriptorSet = undefined;
-    var render_fences: [frame_count]vk.Fence = undefined;
+    var command_buffers: [frames_in_flight]vk.CommandBuffer = undefined;
+    var desc_sets: [frames_in_flight]vk.DescriptorSet = undefined;
+    var render_fences: [frames_in_flight]vk.Fence = undefined;
 
-    for (0..frame_count) |i| {
+    for (0..frames_in_flight) |i| {
         command_buffers[i] = try Commands.createCommandBuffer(&ctx, command_pool);
         desc_sets[i] = try Descriptor.updateDescriptorSets(
             &ctx,
@@ -168,7 +164,7 @@ pub fn main(init: std.process.Init) !void {
         render_fences[i] = try ctx.dev.createFence(&.{ .flags = .{ .signaled_bit = true } }, null);
     }
 
-    defer for (0..frame_count) |i| {
+    defer for (0..frames_in_flight) |i| {
         ctx.dev.destroyFence(render_fences[i], null);
     };
 
@@ -221,22 +217,18 @@ pub fn main(init: std.process.Init) !void {
     const frames = try Path.load(path_file, io, allocator);
     defer allocator.free(frames);
 
-    const total_frames = frames.len;
+    const num_frames = frames.len;
 
     const start_time = std.Io.Clock.awake.now(io);
 
     for (frames, 0..) |frame, i| {
-        std.debug.print("\rRendering frame {}/{} ({d:.1}%)", .{
-            i + 1,
-            total_frames,
-            (@as(f64, @floatFromInt(i + 1)) / @as(f64, @floatFromInt(total_frames))) * 100.0,
-        });
+        printProgress(start_time, std.Io.Clock.awake.now(io), num_frames, i + 1);
 
-        const frame_idx = i % frame_count;
+        const frame_idx = i % frames_in_flight;
 
         _ = try ctx.dev.waitForFences(&.{render_fences[frame_idx]}, .true, std.math.maxInt(u64));
 
-        if (i >= frame_count) {
+        if (i >= frames_in_flight) {
             const prev_idx = frame_idx;
             const pixel_slice: []const u8 = @as([*]const u8, @ptrCast(output_buffers[prev_idx].ptr))[0..output_buffers[prev_idx].size];
             try Video.write(&proc, io, pixel_slice);
@@ -390,11 +382,11 @@ pub fn main(init: std.process.Init) !void {
     }
 
     // Flush remaining frames
-    const total_written_in_loop = if (frames.len >= frame_count) frames.len - frame_count else 0;
+    const total_written_in_loop = if (num_frames >= frames_in_flight) num_frames - frames_in_flight else 0;
     var j = total_written_in_loop;
 
-    while (j < frames.len) : (j += 1) {
-        const frame_idx = j % frame_count;
+    while (j < num_frames) : (j += 1) {
+        const frame_idx = j % frames_in_flight;
 
         _ = try ctx.dev.waitForFences(&.{render_fences[frame_idx]}, .true, std.math.maxInt(u64));
 
@@ -406,13 +398,56 @@ pub fn main(init: std.process.Init) !void {
 
     try Video.close(&proc, init.io);
 
-    const end_time = std.Io.Clock.awake.now(io);
-    const total_elapsed_s = @as(f64, @floatFromInt(start_time.durationTo(end_time).nanoseconds)) / std.time.ns_per_s;
-    const average_fps = @as(f64, @floatFromInt(frames.len)) / total_elapsed_s;
-    const ms_per_frame = (total_elapsed_s / @as(f64, @floatFromInt(frames.len))) * std.time.ms_per_s;
+    std.debug.print("\n", .{});
+    std.log.info("Video written to {s}", .{video_file});
+}
 
-    std.debug.print("\n=== Performance Summary ===\n", .{});
-    std.debug.print("Total Time:     {d:.2} seconds\n", .{total_elapsed_s});
-    std.debug.print("Average FPS:    {d:.2}\n", .{average_fps});
-    std.debug.print("Avg Frame Time: {d:.2} ms\n", .{ms_per_frame});
+pub fn printProgress(
+    start_time: std.Io.Timestamp,
+    end_time: std.Io.Timestamp,
+    num_frames: usize,
+    current_frame: usize,
+) void {
+    const progress_percentage = (@as(f64, @floatFromInt(current_frame)) / @as(f64, @floatFromInt(num_frames))) * 100.0;
+
+    const progress_bar_size = 40;
+
+    const white_esc = "\x1B[47m";
+    const default_esc = "\x1B[49m";
+
+    var progress_buffer = (white_esc ++ " " ** (progress_bar_size + default_esc.len)).*;
+
+    const num_progress_nodes: usize = @trunc(progress_percentage / (100.0 / @as(comptime_float, progress_bar_size)));
+
+    @memcpy(
+        progress_buffer[num_progress_nodes + white_esc.len .. num_progress_nodes + white_esc.len + default_esc.len],
+        default_esc,
+    );
+
+    const raw_elapsed_s: u64 = @intCast(start_time.durationTo(end_time).toSeconds());
+    const elapsed_h = raw_elapsed_s / std.time.s_per_hour;
+    const elapsed_m = (raw_elapsed_s % std.time.s_per_hour) / std.time.s_per_min;
+    const elapsed_s = (raw_elapsed_s % std.time.s_per_hour) % std.time.s_per_min;
+
+    const average_fps = @as(f64, @floatFromInt(current_frame)) / @as(f64, @floatFromInt(raw_elapsed_s));
+
+    const remaining_frames = num_frames - current_frame;
+    const raw_remaining_s: u64 = @trunc(@as(f64, @floatFromInt(remaining_frames)) / (average_fps));
+    const remaining_h = raw_remaining_s / std.time.s_per_hour;
+    const remaining_m = (raw_remaining_s % std.time.s_per_hour) / std.time.s_per_min;
+    const remaining_s = (raw_remaining_s % std.time.s_per_hour) % std.time.s_per_min;
+
+    std.debug.print("\r{d:.0}%|{s}| {d}/{d} [ {d:02}:{d:02}:{d:02}<{d:02}:{d:02}:{d:02}, {d:.2}fps ]", .{
+        progress_percentage,
+        progress_buffer,
+        current_frame,
+        num_frames,
+        elapsed_h,
+        elapsed_m,
+        elapsed_s,
+        remaining_h,
+        remaining_m,
+        remaining_s,
+        average_fps,
+    });
 }
