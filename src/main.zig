@@ -10,7 +10,7 @@ const Colormap = @import("./colormap.zig");
 const Sampler = @import("./sampler.zig");
 const Descriptor = @import("./desc_sets.zig");
 const Commands = @import("./commands.zig");
-const Constants = @import("./push_constants.zig");
+const PushConstant = @import("./push_constants.zig").PushConstant;
 const SVO = @import("./svo.zig");
 const Video = @import("./video.zig");
 const Path = @import("./path.zig");
@@ -27,7 +27,7 @@ pub fn main(init: std.process.Init) !void {
 
     var parser = try args.ArgumentParser.init(allocator, .{
         .name = "amr-view",
-        .version = "0.1.0",
+        .version = "0.2.0",
         .description = "A Zig and Vulkan based AMR dataset visualizer.",
     });
     defer parser.deinit();
@@ -58,6 +58,8 @@ pub fn main(init: std.process.Init) !void {
 
     const encoder = result.getEnum(Video.Encoder, "encoder") orelse .x264;
     const hwaccel = result.getEnum(Video.HWAccel, "hwaccel") orelse .none;
+
+    const mode = result.getEnum(Pipeline.Mode, "mode") orelse .normal;
 
     const frames_in_flight = 2;
 
@@ -99,7 +101,9 @@ pub fn main(init: std.process.Init) !void {
     metadata.print();
 
     var svo: SVO.SVOBuffers = undefined;
+
     const chunk_size_bytes: u64 = @as(u64, 1) << @intCast(std.math.log2(ctx.max_alloc_size));
+
     try svo.create(&ctx, allocator, metadata.num_nodes, chunk_size_bytes);
     defer svo.destroy(&ctx, allocator);
 
@@ -135,10 +139,10 @@ pub fn main(init: std.process.Init) !void {
 
     // ------------------- Pipelines & Layouts --------------------
 
-    const pipeline_layout = try Pipeline.createPipelineLayout(&ctx, desc_layout, @sizeOf(Constants.PushConstant));
+    const pipeline_layout = try Pipeline.createPipelineLayout(&ctx, desc_layout, @sizeOf(PushConstant));
     defer Pipeline.destroyPipelineLayout(&ctx, pipeline_layout);
 
-    const pipeline = try Pipeline.createComputePipeline(&ctx, pipeline_layout);
+    const pipeline = try Pipeline.createComputePipeline(&ctx, pipeline_layout, mode);
     defer Pipeline.destroyPipeline(&ctx, pipeline);
 
     // ---------------- Commands & Synchronization ----------------
@@ -182,7 +186,7 @@ pub fn main(init: std.process.Init) !void {
 
     // ---------------------- Push Constants ----------------------
 
-    var push_constants = Constants.PushConstant{
+    var push_constants = PushConstant{
         // Camera info
         .camera_pos = undefined,
         .camera_dir = undefined,
@@ -255,7 +259,7 @@ pub fn main(init: std.process.Init) !void {
             pipeline_layout,
             .{ .compute_bit = true },
             0,
-            @sizeOf(Constants.PushConstant),
+            @sizeOf(PushConstant),
             @ptrCast(&push_constants),
         );
 

@@ -41,6 +41,8 @@ pub fn open(
         "-",
         "-pix_fmt",
         "yuv420p",
+        "-threads",
+        "0",
     };
 
     const enc: []const []const u8 = switch (hwaccel) {
@@ -50,9 +52,9 @@ pub fn open(
             .av1 => &.{ "-c:v", "libsvtav1", "-crf", "25", "-preset", "11", "-svtav1-params", "lp=6" },
         },
         .nvenc => switch (encoder) {
-            .x264 => &.{ "-c:v", "h264_nvenc", "-qp", "22", "-rc", "constqp", "-preset", "p7", "-tune", "hq" },
-            .x265 => &.{ "-c:v", "hevc_nvenc", "-qp", "22", "-rc", "constqp", "-preset", "p7", "-tune", "hq" },
-            .av1 => &.{ "-c:v", "av1_nvenc", "-qp", "25", "-rc", "constqp", "-preset", "p7", "-tune", "hq" },
+            .x264 => &.{ "-c:v", "h264_nvenc", "-cq", "23", "-rc", "vbr", "-qmin", "23", "-qmax", "30", "-preset", "p7", "-tune", "hq" },
+            .x265 => &.{ "-c:v", "hevc_nvenc", "-cq", "23", "-rc", "vbr", "-qmin", "23", "-qmax", "30", "-preset", "p7", "-tune", "hq" },
+            .av1 => &.{ "-c:v", "av1_nvenc", "-cq", "25", "-rc", "vbr", "-qmin", "25", "-qmax", "30", "-preset", "p7", "-tune", "hq" },
         },
         .amf => switch (encoder) {
             .x264 => &.{ "-c:v", "h264_amf", "-usage", "high_quality", "-quality", "quality", "-preset", "quality", "-rc", "cqp", "-qp_i", "22", "-qp_p", "22", "-qp_b", "22" },

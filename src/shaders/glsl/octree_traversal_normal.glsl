@@ -62,6 +62,15 @@ uint find_octant_containing(vec3 ray_pos, vec3 node_pos) {
     return b.x | (b.y << 1u) | (b.z << 2u);
 }
 
+uvec2 get_node(uint64_t idx) {
+  uint64_t chunk_idx = idx >> chunk_shift;
+  uint64_t sub_idx = idx & ((1u << chunk_shift) - 1u);
+
+  uint64_t base_addr = chunk_ptrs[chunk_idx];
+  OctreeChunk curr_chunk = OctreeChunk(base_addr);
+  return curr_chunk.nodes[sub_idx];
+}
+
 void main() {
     // 1. Determine target pixel and guard against out-of-bounds invocations
     ivec2 pixel_coords = ivec2(gl_GlobalInvocationID.xy);
@@ -118,13 +127,7 @@ void main() {
             vec3 sub_min = node_pos - vec3(node_size * 0.5);
             vec3 sub_max = node_pos + vec3(node_size * 0.5);
 
-            uint64_t chunk_idx = node_idx >> chunk_shift;
-            uint64_t sub_idx = node_idx & ((1u << chunk_shift) - 1u);
-
-            uint64_t base_addr = chunk_ptrs[chunk_idx];
-            OctreeChunk curr_chunk = OctreeChunk(base_addr);
-
-            uvec2 raw = curr_chunk.nodes[sub_idx];
+            uvec2 raw = get_node(node_idx);
             uint64_t child_idx = uint64_t(raw.x);
             uint child_mask = raw.y;
 
@@ -142,13 +145,7 @@ void main() {
             uint type_bit = (child_mask >> (octant + 8u)) & 1u;
 
             if (type_bit == 1u) {
-                uint64_t target_chunk_idx = target_idx >> chunk_shift;
-                uint64_t target_sub_idx = target_idx & ((1u << chunk_shift) - 1u);
-
-                uint64_t target_base_addr = chunk_ptrs[target_chunk_idx];
-                OctreeChunk target_chunk = OctreeChunk(target_base_addr);
-
-                uvec2 leaf_raw = target_chunk.nodes[target_sub_idx];
+                uvec2 leaf_raw = get_node(target_idx);
 
                 float t_exit = get_exit_t(ray_origin, ray_inv_dir, sub_min, sub_max);
                 float dt = t_exit - t;

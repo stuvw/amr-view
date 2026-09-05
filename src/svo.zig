@@ -241,18 +241,20 @@ pub const SVOFileMetadata = struct {
 
                         var sim_name_size: u64 = undefined;
                         try interface.readSliceAll(std.mem.asBytes(&sim_name_size));
-                        self.simulation_name.? = try allocator.alloc(u8, sim_name_size);
+                        self.simulation_name = try allocator.alloc(u8, sim_name_size);
                         try interface.readSliceAll(self.simulation_name.?);
 
                         var field_size: u64 = undefined;
                         try interface.readSliceAll(std.mem.asBytes(&field_size));
-                        self.field.? = try allocator.alloc(u8, field_size);
+                        self.field = try allocator.alloc(u8, field_size);
                         try interface.readSliceAll(self.field.?);
 
                         var weight_size: u64 = undefined;
                         try interface.readSliceAll(std.mem.asBytes(&weight_size));
-                        self.weight.? = try allocator.alloc(u8, weight_size);
+                        self.weight = try allocator.alloc(u8, weight_size);
                         try interface.readSliceAll(self.weight.?);
+
+                        self.header_size = reader.pos;
                     },
                     else => error.UnsupportedFile,
                 };
@@ -268,8 +270,8 @@ pub const SVOFileMetadata = struct {
     }
 
     pub fn destroy(self: *@This(), allocator: std.mem.Allocator) void {
-        if (self.simulation_name) |name| {
-            allocator.free(name);
+        if (self.simulation_name) |n| {
+            allocator.free(n);
         }
         if (self.field) |f| {
             allocator.free(f);

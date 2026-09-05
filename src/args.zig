@@ -101,6 +101,13 @@ pub fn parseArgs(parser: *args.ArgumentParser, init: std.process.Init) !args.Par
         .value_type = .choice,
     });
 
+    try parser.addOption("mode", .{
+        .help = "Rendering mode",
+        .choices = &.{ "normal", "vr180", "vr360" },
+        .default = "normal",
+        .value_type = .choice,
+    });
+
     return try parser.parseProcess(init);
 }
 

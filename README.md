@@ -36,7 +36,7 @@ This value is mapped through a user-specified 256-color RGBA colormap (supportin
 
 ### Dataset format (`.amrv`)
 
-The renderer expects a binary file composed of a version-specific metadata header followed by a compact SVO ([Sparse Voxel Octree](https://eisenwave.github.io/voxel-compression-docs/svo/svo.html)). You can generate this using the [create_cutout_svo.py](./tools/create_cutout_svo.py) script.
+The renderer expects a binary file composed of a version-specific metadata header followed by a compact SVO ([Sparse Voxel Octree](https://eisenwave.github.io/voxel-compression-docs/svo/svo.html)). You can generate this using the [create_cutout_svo_threaded.py](./tools/create_cutout_svo_threaded.py) script.
 
 Each SVO node is exactly **8 bytes** and can be one of two types:
 * **Branch Node:** Two 32-bit integers. The first is the index of the first child node; the second is a bit-mask indicating child presence and whether they are leaves.
@@ -65,7 +65,7 @@ A binary file containing 256 structural RGBA byte-quartets (1024 bytes total). Y
 
 - A working [Vulkan](https://www.vulkan.org/) driver (v1.2 or later)
     - MacOS : `brew install molten-vk`
-    - Linux : Installation instructions vary greatly based on the distro and the hardware, see distro-specific instructions.
+    - Linux : Installation instructions vary greatly based on the distro and the hardware. You can easily find distro-specific instructions online.
 - [FFmpeg](https://www.ffmpeg.org/) installed and on `PATH`.
     - MacOS : `brew install ffmpeg`
     - Arch Linux : `sudo pacman -S ffmpeg`
@@ -122,6 +122,7 @@ The binary will be generated at `./zig-out/bin/amr-view` .
 | --root-pos | 0,0,0 | Center position of the root of the SVO |
 | --encoder | x264 | Video codec used to encode the output video. Choices: x264, x265, av1 |
 | --hwaccel | none | Use GPU hardware video acceleration. GPU must support requested encoder. Choices: none, nvenc, amf, qsv, vtb |
+| --mode | normal | Select rendering mode. Choices: normal, vr180, vr360 |
 
 ## Roadmap (Coming soon™)
 
@@ -136,6 +137,10 @@ The binary will be generated at `./zig-out/bin/amr-view` .
 The [rasterizer](https://github.com/stuvw/RenderPath/) quickly gets bottlenecked by the fixed-function rasterization hardware, and fails to render past 4 GiB files, due to a design limitaion.
 
 Meanwhile, the current approach stays quite steady up to around a billion cells, and performance slowly decreases. Currently, the code supports a maximum file size of 64 GiB, but it would be possible to push that limit back even further.
+
+## VR 180/360
+
+It is possible to render headset VR360 and dome VR180 video using the `--mode` flag. In most cases, VR360 video is expected to be in a 2:1 width:height format, whereas VR180 is expected to be 1:1.
 
 ## Credits / Thanks
 

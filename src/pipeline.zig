@@ -2,8 +2,16 @@ const std = @import("std");
 const vk = @import("vulkan");
 const Context = @import("context.zig").Context;
 
+pub const Mode = enum {
+    normal,
+    vr180,
+    vr360,
+};
+
 // Ensure compiled SPIR-V bytecode is correctly aligned for Vulkan's ingestion
-const shader_src align(@alignOf(u32)) = @embedFile("./shaders/spirv/octree_traversal_normal.spv").*;
+const normal_shader_src align(@alignOf(u32)) = @embedFile("./shaders/spirv/octree_traversal_normal.spv").*;
+const vr180_shader_src align(@alignOf(u32)) = @embedFile("./shaders/spirv/octree_traversal_vr180.spv").*;
+const vr360_shader_src align(@alignOf(u32)) = @embedFile("./shaders/spirv/octree_traversal_vr360.spv").*;
 
 pub fn createPipelineLayout(ctx: *const Context, desc_layout: vk.DescriptorSetLayout, pc_size: u32) !vk.PipelineLayout {
     return try ctx.dev.createPipelineLayout(&.{
@@ -24,15 +32,20 @@ pub fn destroyPipelineLayout(ctx: *const Context, pipeline_layout: vk.PipelineLa
     ctx.dev.destroyPipelineLayout(pipeline_layout, null);
 }
 
-pub fn createComputePipeline(
-    ctx: *const Context,
-    layout: vk.PipelineLayout,
-) !vk.Pipeline {
+pub fn createComputePipeline(ctx: *const Context, layout: vk.PipelineLayout, mode: Mode) !vk.Pipeline {
 
     // ---------------------- Shader Module -----------------------
     const shader_module = try ctx.dev.createShaderModule(&.{
-        .code_size = shader_src.len,
-        .p_code = @ptrCast(&shader_src),
+        .code_size = switch (mode) {
+            .normal => normal_shader_src.len,
+            .vr180 => vr180_shader_src.len,
+            .vr360 => vr360_shader_src.len,
+        },
+        .p_code = switch (mode) {
+            .normal => @ptrCast(&normal_shader_src),
+            .vr180 => @ptrCast(&vr180_shader_src),
+            .vr360 => @ptrCast(&vr360_shader_src),
+        },
     }, null);
     defer ctx.dev.destroyShaderModule(shader_module, null);
 
