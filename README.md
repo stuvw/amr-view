@@ -36,7 +36,7 @@ This value is mapped through a user-specified 256-color RGBA colormap (supportin
 
 ### Dataset format (`.amrv`)
 
-The renderer expects a binary file composed of a version-specific metadata header followed by a compact SVO ([Sparse Voxel Octree](https://eisenwave.github.io/voxel-compression-docs/svo/svo.html)). You can generate this using the [create_cutout_svo_threaded.py](./tools/create_cutout_svo_threaded.py) script.
+The renderer expects a binary file composed of a version-specific metadata header followed by a compact SVO ([Sparse Voxel Octree](https://eisenwave.github.io/voxel-compression-docs/svo/svo.html)). You can generate this using the [create_cutout_svo.py](./tools/create_cutout_svo.py) script.
 
 Each SVO node is exactly **8 bytes** and can be one of two types:
 * **Branch Node:** Two 32-bit integers. The first is the index of the first child node; the second is a bit-mask indicating child presence and whether they are leaves.
@@ -58,19 +58,23 @@ A binary file containing 256 structural RGBA byte-quartets (1024 bytes total). Y
 
     - MacOS : `brew install zig`
     - Arch Linux : `sudo pacman -S zig`
-    - Ubuntu / Debian : `sudo apt install zig`
     - Fedora / RHEL : `sudo dnf install -y zig`
+    - Ubuntu / Debian : `sudo apt install zig`
 
 ### Runtime dependencies
 
 - A working [Vulkan](https://www.vulkan.org/) driver (v1.2 or later)
     - MacOS : `brew install molten-vk`
-    - Linux : Installation instructions vary greatly based on the distro and the hardware. You can easily find distro-specific instructions online.
+    - Arch Linux : [see here](https://wiki.archlinux.org/title/Vulkan)
+    - Fedora / RHEL : [see here](https://rpmfusion.org/Howto/NVIDIA#Vulkan)
+    - Ubuntu / Debian : [see here](https://oneuptime.com/blog/post/2026-03-02-how-to-install-and-configure-vulkan-on-ubuntu/view#installing-vulkan-packages)
+    > Installing Vulkan might require more setup if you have an NVIDIA card.
+
 - [FFmpeg](https://www.ffmpeg.org/) installed and on `PATH`.
     - MacOS : `brew install ffmpeg`
     - Arch Linux : `sudo pacman -S ffmpeg`
-    - Ubuntu / Debian : `sudo apt install ffmpeg`
     - Fedora / RHEL : `sudo dnf install -y ffmpeg` 
+    - Ubuntu / Debian : `sudo apt install ffmpeg`
 
 ## Installation
 
@@ -126,7 +130,7 @@ The binary will be generated at `./zig-out/bin/amr-view` .
 
 ## Roadmap (Coming soon™)
 
- - [] VR 180/360 rendering support
+ - TBD, will consider user requests
 
 ## Performance
 
