@@ -83,11 +83,16 @@ void main() {
     const float HALF_PI = PI * 0.5;
 
     vec2 uv = (vec2(pixel_coords) + 0.5) / vec2(img_size);
+    vec2 ndc = uv * 2.0 - 1.0;
 
-    float phi = (uv.x * 2.0 - 1.0) * PI;
-    float theta = (uv.y * 2.0 - 1.0) * HALF_PI;
+    float phi = ndc.x * PI;
+    float theta = ndc.y * HALF_PI;
 
-    vec3 local_dir = vec3(cos(theta) * sin(phi), sin(theta), cos(theta) * cos(phi));
+    vec3 local_dir = vec3(
+        cos(theta) * sin(phi),
+        sin(theta),
+        cos(theta) * cos(phi)
+    );
 
     vec3 ray_dir = normalize(
         local_dir.x * camera_right + 

@@ -83,10 +83,10 @@ void main() {
     const float HALF_PI = PI * 0.5;
 
     vec2 uv = (vec2(pixel_coords) + 0.5) / vec2(img_size);
-    vec2 p = uv * 2.0 - 1.0;
+    vec2 ndc = uv * 2.0 - 1.0;
 
-    float longitude = p.x * HALF_PI;
-    float latitude  = p.y * HALF_PI;
+    float longitude = ndc.x * HALF_PI;
+    float latitude  = ndc.y * HALF_PI;
 
     vec3 local_dir = vec3(
         sin(longitude) * cos(latitude),
