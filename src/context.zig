@@ -3,12 +3,12 @@ const builtin = @import("builtin");
 const vk = @import("vulkan");
 const Allocator = std.mem.Allocator;
 
-const enable_validation_layers = switch (builtin.mode) {
+const enable_debug = switch (builtin.mode) {
     .Debug, .ReleaseSafe => true,
     .ReleaseFast, .ReleaseSmall => false,
 };
 
-const required_layer_names = if (enable_validation_layers) [_][*:0]const u8{"VK_LAYER_KHRONOS_validation"} else [_][*:0]const u8{};
+const required_layer_names = if (enable_debug) [_][*:0]const u8{"VK_LAYER_KHRONOS_validation"} else [_][*:0]const u8{};
 
 const required_device_extensions = [_][*:0]const u8{};
 
@@ -75,14 +75,14 @@ pub const Context = struct {
 
         var extension_names: std.ArrayList([*:0]const u8) = .empty;
         defer extension_names.deinit(allocator);
-        try extension_names.append(allocator, vk.extensions.ext_debug_utils.name);
+        if (enable_debug) try extension_names.append(allocator, vk.extensions.ext_debug_utils.name);
 
         const instance = try self.vkb.createInstance(&.{
             .p_application_info = &.{
                 .p_application_name = app_name,
-                .application_version = vk.makeApiVersion(0, 0, 0, 0).toU32(),
+                .application_version = vk.makeApiVersion(0, 0, 2, 0).toU32(),
                 .p_engine_name = app_name,
-                .engine_version = vk.makeApiVersion(0, 0, 0, 0).toU32(),
+                .engine_version = vk.makeApiVersion(0, 0, 2, 0).toU32(),
                 .api_version = vk.API_VERSION_1_2.toU32(),
             },
             .enabled_layer_count = required_layer_names.len,
@@ -98,21 +98,23 @@ pub const Context = struct {
         self.instance = Instance.init(instance, vki);
         errdefer self.instance.destroyInstance(null);
 
-        self.debug_messenger = try self.instance.createDebugUtilsMessengerEXT(&.{
-            .message_severity = .{
-                //.verbose_bit_ext = true,
-                //.info_bit_ext = true,
-                .warning_bit_ext = true,
-                .error_bit_ext = true,
-            },
-            .message_type = .{
-                .general_bit_ext = true,
-                .validation_bit_ext = true,
-                .performance_bit_ext = true,
-            },
-            .pfn_user_callback = &debugUtilsMessengerCallback,
-            .p_user_data = null,
-        }, null);
+        if (enable_debug) {
+            self.debug_messenger = try self.instance.createDebugUtilsMessengerEXT(&.{
+                .message_severity = .{
+                    .verbose_bit_ext = true,
+                    .info_bit_ext = true,
+                    .warning_bit_ext = true,
+                    .error_bit_ext = true,
+                },
+                .message_type = .{
+                    .general_bit_ext = true,
+                    .validation_bit_ext = true,
+                    .performance_bit_ext = true,
+                },
+                .pfn_user_callback = &debugUtilsMessengerCallback,
+                .p_user_data = null,
+            }, null);
+        }
 
         const candidate = try pickPhysicalDevice(self.instance, allocator);
         self.pdev = candidate.pdev;
@@ -141,7 +143,7 @@ pub const Context = struct {
 
     pub fn deinit(self: Context) void {
         self.dev.destroyDevice(null);
-        self.instance.destroyDebugUtilsMessengerEXT(self.debug_messenger, null);
+        if (enable_debug) self.instance.destroyDebugUtilsMessengerEXT(self.debug_messenger, null);
         self.instance.destroyInstance(null);
 
         // Don't forget to free the tables to prevent a memory leak.
