@@ -10,7 +10,7 @@ pub fn createDescriptorPool(ctx: *const Context) !vk.DescriptorPool {
         .pool_size_count = 3,
         .p_pool_sizes = &[_]vk.DescriptorPoolSize{
             .{ .type = .combined_image_sampler, .descriptor_count = max_sets },
-            .{ .type = .storage_image, .descriptor_count = max_sets },
+            .{ .type = .storage_image, .descriptor_count = 3 * max_sets },
             .{ .type = .storage_buffer, .descriptor_count = max_sets },
         },
     }, null);
@@ -22,22 +22,34 @@ pub fn destroyDescriptorPool(ctx: *const Context, desc_pool: vk.DescriptorPool) 
 
 pub fn createDescriptorSetLayout(ctx: *const Context) !vk.DescriptorSetLayout {
     return try ctx.dev.createDescriptorSetLayout(&.{
-        .binding_count = 3,
+        .binding_count = 5,
         .p_bindings = &[_]vk.DescriptorSetLayoutBinding{
             .{
-                .binding = 0, // output image
+                .binding = 0, // Y plane
                 .descriptor_type = .storage_image,
                 .descriptor_count = 1,
                 .stage_flags = .{ .compute_bit = true },
             },
             .{
-                .binding = 1, // colormap image
+                .binding = 1, // U plane
+                .descriptor_type = .storage_image,
+                .descriptor_count = 1,
+                .stage_flags = .{ .compute_bit = true },
+            },
+            .{
+                .binding = 2, // V plane
+                .descriptor_type = .storage_image,
+                .descriptor_count = 1,
+                .stage_flags = .{ .compute_bit = true },
+            },
+            .{
+                .binding = 3, // colormap image
                 .descriptor_type = .combined_image_sampler,
                 .descriptor_count = 1,
                 .stage_flags = .{ .compute_bit = true },
             },
             .{
-                .binding = 2, // chunk pointers
+                .binding = 4, // chunk pointers
                 .descriptor_type = .storage_buffer,
                 .descriptor_count = 1,
                 .stage_flags = .{ .compute_bit = true },
@@ -54,7 +66,9 @@ pub fn updateDescriptorSets(
     ctx: *const Context,
     desc_pool: vk.DescriptorPool,
     desc_layout: vk.DescriptorSetLayout,
-    output_image: vk.ImageView,
+    y_img: vk.ImageView,
+    u_img: vk.ImageView,
+    v_img: vk.ImageView,
     nearest_sampler: vk.Sampler,
     cmap_image: vk.ImageView,
     octree_ptr_buffer: vk.Buffer,
@@ -67,38 +81,60 @@ pub fn updateDescriptorSets(
     }, &sets);
     const set = sets[0];
 
-    const output_image_info = vk.DescriptorImageInfo{ .image_view = output_image, .image_layout = .general, .sampler = .null_handle };
-    const cmap_image_info = vk.DescriptorImageInfo{ .sampler = nearest_sampler, .image_view = cmap_image, .image_layout = .shader_read_only_optimal };
-    const octree_ptr_buffer_info = vk.DescriptorBufferInfo{ .buffer = octree_ptr_buffer, .offset = 0, .range = vk.WHOLE_SIZE };
+    const y_plane_img_info = vk.DescriptorImageInfo{ .image_view = y_img, .image_layout = .general, .sampler = .null_handle };
+    const u_plane_img_info = vk.DescriptorImageInfo{ .image_view = u_img, .image_layout = .general, .sampler = .null_handle };
+    const v_plane_img_info = vk.DescriptorImageInfo{ .image_view = v_img, .image_layout = .general, .sampler = .null_handle };
+    const cmap_img_info = vk.DescriptorImageInfo{ .sampler = nearest_sampler, .image_view = cmap_image, .image_layout = .shader_read_only_optimal };
+    const octree_ptr_buf_info = vk.DescriptorBufferInfo{ .buffer = octree_ptr_buffer, .offset = 0, .range = vk.WHOLE_SIZE };
 
     ctx.dev.updateDescriptorSets(&[_]vk.WriteDescriptorSet{
-        .{ // Binding 0: Output Storage Image (writeonly image2D)
+        .{ // Binding 0: Output Y plane Image (writeonly image2D)
             .dst_set = set,
             .dst_binding = 0,
             .dst_array_element = 0,
             .descriptor_count = 1,
             .descriptor_type = .storage_image,
-            .p_image_info = &.{output_image_info},
+            .p_image_info = &.{y_plane_img_info},
+            .p_buffer_info = &.{},
+            .p_texel_buffer_view = &.{},
+        },
+        .{ // Binding 1: Output U plane Image (writeonly image2D)
+            .dst_set = set,
+            .dst_binding = 1,
+            .dst_array_element = 0,
+            .descriptor_count = 1,
+            .descriptor_type = .storage_image,
+            .p_image_info = &.{u_plane_img_info},
+            .p_buffer_info = &.{},
+            .p_texel_buffer_view = &.{},
+        },
+        .{ // Binding 2: Output V plane Image (writeonly image2D)
+            .dst_set = set,
+            .dst_binding = 2,
+            .dst_array_element = 0,
+            .descriptor_count = 1,
+            .descriptor_type = .storage_image,
+            .p_image_info = &.{v_plane_img_info},
             .p_buffer_info = &.{},
             .p_texel_buffer_view = &.{},
         },
         .{ // Binding 1: Colormap Texture (sampler2D)
             .dst_set = set,
-            .dst_binding = 1,
+            .dst_binding = 3,
             .dst_array_element = 0,
             .descriptor_count = 1,
             .descriptor_type = .combined_image_sampler,
-            .p_image_info = &.{cmap_image_info},
+            .p_image_info = &.{cmap_img_info},
             .p_buffer_info = &.{},
             .p_texel_buffer_view = &.{},
         },
         .{ // Binding 2: Octree Chunk Pointers
             .dst_set = set,
-            .dst_binding = 2,
+            .dst_binding = 4,
             .dst_array_element = 0,
             .descriptor_count = 1,
             .descriptor_type = .storage_buffer,
-            .p_buffer_info = &.{octree_ptr_buffer_info},
+            .p_buffer_info = &.{octree_ptr_buf_info},
             .p_image_info = &.{},
             .p_texel_buffer_view = &.{},
         },

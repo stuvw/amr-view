@@ -34,7 +34,7 @@ pub fn open(
         "-s",
         try std.fmt.bufPrint(&size_buf, "{d}x{d}", .{ width, height }),
         "-pix_fmt",
-        "rgba",
+        "yuv420p",
         "-r",
         try std.fmt.bufPrint(&fps_buf, "{d}", .{framerate}),
         "-i",

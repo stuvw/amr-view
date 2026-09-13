@@ -13,7 +13,7 @@ const normal_shader_src align(@alignOf(u32)) = @embedFile("./shaders/spirv/octre
 const vr180_shader_src align(@alignOf(u32)) = @embedFile("./shaders/spirv/octree_traversal_vr180.spv").*;
 const vr360_shader_src align(@alignOf(u32)) = @embedFile("./shaders/spirv/octree_traversal_vr360.spv").*;
 
-pub fn createPipelineLayout(ctx: *const Context, desc_layout: vk.DescriptorSetLayout, pc_size: u32) !vk.PipelineLayout {
+pub fn createPipelineLayout(ctx: *const Context, desc_layout: vk.DescriptorSetLayout) !vk.PipelineLayout {
     return try ctx.dev.createPipelineLayout(&.{
         .set_layout_count = 1,
         .p_set_layouts = &.{desc_layout},
@@ -22,7 +22,7 @@ pub fn createPipelineLayout(ctx: *const Context, desc_layout: vk.DescriptorSetLa
             vk.PushConstantRange{
                 .stage_flags = .{ .compute_bit = true },
                 .offset = 0,
-                .size = pc_size,
+                .size = @sizeOf(@import("./push_constants.zig").PushConstant),
             },
         },
     }, null);

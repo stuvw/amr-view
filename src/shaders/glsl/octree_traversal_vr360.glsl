@@ -11,12 +11,18 @@ layout(buffer_reference, std430) readonly buffer OctreeChunk {
     uvec2 nodes[];
 };
 
-layout(rgba8, set = 0, binding = 0) writeonly uniform image2D out_image;
-layout(set = 0, binding = 1) uniform sampler2D colormap_tex;
+layout(r8, set = 0, binding = 0) writeonly uniform image2D Y_plane;
+layout(r8, set = 0, binding = 1) writeonly uniform image2D U_plane;
+layout(r8, set = 0, binding = 2) writeonly uniform image2D V_plane;
 
-layout(std430, set = 0, binding = 2) readonly buffer chunks {
+layout(set = 0, binding = 3) uniform sampler2D colormap_tex;
+
+layout(std430, set = 0, binding = 4) readonly buffer chunks {
     uint64_t chunk_ptrs[];
 };
+
+shared float U_shared[8][8];
+shared float V_shared[8][8];
 
 layout(push_constant) uniform Constants {
     vec3 camera_pos;
@@ -71,10 +77,19 @@ uvec2 get_node(uint64_t idx) {
   return curr_chunk.nodes[sub_idx];
 }
 
+// RGB to YUV BT601
+vec3 rgb_to_yuv(vec3 rgb) {
+  return vec3(
+      0.299 * rgb.r + 0.587 * rgb.g + 0.114 * rgb.b,
+      -0.147 * rgb.r - 0.289 * rgb.g + 0.436 * rgb.b + 0.5,
+      0.615 * rgb.r - 0.515 * rgb.g - 0.100 * rgb.b + 0.5
+  );
+}
+
 void main() {
     // 1. Determine target pixel and guard against out-of-bounds invocations
     ivec2 pixel_coords = ivec2(gl_GlobalInvocationID.xy);
-    ivec2 img_size = imageSize(out_image);
+    ivec2 img_size = imageSize(Y_plane);
     if (pixel_coords.x >= img_size.x || pixel_coords.y >= img_size.y) {
         return;
     }
@@ -197,6 +212,24 @@ void main() {
         final_color = mix(color, over_color, step(1.0, color_t));
     }
 
+    vec3 yuv = rgb_to_yuv(final_color.rgb);
+
     // Write the calculated color directly to the output storage image
-    imageStore(out_image, pixel_coords, final_color);
+    imageStore(Y_plane, pixel_coords, vec4(yuv.r, 0.0, 0.0, 0.0));
+
+    ivec2 local_coords = ivec2(gl_LocalInvocationID.xy);
+
+    U_shared[local_coords.y][local_coords.x] = yuv.g;
+    V_shared[local_coords.y][local_coords.x] = yuv.b;
+
+    barrier();
+
+    if ((pixel_coords.x % 2 == 0) && (pixel_coords.y % 2 == 0)) {
+        ivec2 pos = pixel_coords / 2;
+        float U_avg = (U_shared[local_coords.y][local_coords.x] + U_shared[local_coords.y + 1u][local_coords.x] + U_shared[local_coords.y][local_coords.x + 1u] + U_shared[local_coords.y + 1u][local_coords.x + 1u]) * 0.25;
+        float V_avg = (V_shared[local_coords.y][local_coords.x] + V_shared[local_coords.y + 1u][local_coords.x] + V_shared[local_coords.y][local_coords.x + 1u] + V_shared[local_coords.y + 1u][local_coords.x + 1u]) * 0.25;
+
+        imageStore(U_plane, pos, vec4(U_avg, 0.0, 0.0, 0.0));
+        imageStore(V_plane, pos, vec4(V_avg, 0.0, 0.0, 0.0));
+    }
 }

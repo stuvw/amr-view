@@ -5,7 +5,7 @@ const args = @import("args");
 const Context = @import("./context.zig").Context;
 const Args = @import("./args.zig");
 const Pipeline = @import("./pipeline.zig");
-const Output = @import("./output.zig");
+const Frame = @import("./frame.zig").Frame;
 const Colormap = @import("./colormap.zig");
 const Sampler = @import("./sampler.zig");
 const Descriptor = @import("./desc_sets.zig");
@@ -71,17 +71,14 @@ pub fn main(init: std.process.Init) !void {
 
     // -------------------------- Output --------------------------
 
-    var output_images: [frames_in_flight]Output.OutputImage = undefined;
-    var output_buffers: [frames_in_flight]Output.OutputBuffer = undefined;
+    var frame_buffers: [frames_in_flight]Frame = undefined;
 
     for (0..frames_in_flight) |i| {
-        try output_images[i].create(&ctx, frame_width, frame_height);
-        try output_buffers[i].create(&ctx, frame_width, frame_height);
+        try frame_buffers[i].create(&ctx, frame_width, frame_height);
     }
 
     defer for (0..frames_in_flight) |i| {
-        output_images[i].destroy(&ctx);
-        output_buffers[i].destroy(&ctx);
+        frame_buffers[i].destroy(&ctx);
     };
 
     // ------------------------- Colormap -------------------------
@@ -139,7 +136,7 @@ pub fn main(init: std.process.Init) !void {
 
     // ------------------- Pipelines & Layouts --------------------
 
-    const pipeline_layout = try Pipeline.createPipelineLayout(&ctx, desc_layout, @sizeOf(PushConstant));
+    const pipeline_layout = try Pipeline.createPipelineLayout(&ctx, desc_layout);
     defer Pipeline.destroyPipelineLayout(&ctx, pipeline_layout);
 
     const pipeline = try Pipeline.createComputePipeline(&ctx, pipeline_layout, mode);
@@ -160,7 +157,9 @@ pub fn main(init: std.process.Init) !void {
             &ctx,
             desc_pool,
             desc_layout,
-            output_images[i].image_view,
+            frame_buffers[i].img_view_y,
+            frame_buffers[i].img_view_u,
+            frame_buffers[i].img_view_v,
             nearest_sampler,
             cmap.image_view,
             chunk_ptr_buffer,
@@ -216,16 +215,18 @@ pub fn main(init: std.process.Init) !void {
         hwaccel,
     );
 
+    std.log.info("Rendering at {d}x{d}", .{ frame_width, frame_height });
+
     // --------------------- Main Render Loop ---------------------
 
-    const frames = try Path.load(path_file, io, allocator);
-    defer allocator.free(frames);
+    const camera_path = try Path.load(path_file, io, allocator);
+    defer allocator.free(camera_path);
 
-    const num_frames = frames.len;
+    const num_frames = camera_path.len;
 
     const start_time = std.Io.Clock.awake.now(io);
 
-    for (frames, 0..) |frame, i| {
+    for (camera_path, 0..) |cam_point, i| {
         printProgress(start_time, std.Io.Clock.awake.now(io), num_frames, i + 1);
 
         const frame_idx = i % frames_in_flight;
@@ -234,7 +235,7 @@ pub fn main(init: std.process.Init) !void {
 
         if (i >= frames_in_flight) {
             const prev_idx = frame_idx;
-            const pixel_slice: []const u8 = @as([*]const u8, @ptrCast(output_buffers[prev_idx].ptr))[0..output_buffers[prev_idx].size];
+            const pixel_slice: []const u8 = frame_buffers[prev_idx].getSlice();
             try Video.write(&proc, io, pixel_slice);
         }
 
@@ -244,9 +245,9 @@ pub fn main(init: std.process.Init) !void {
             .flags = .{ .one_time_submit_bit = true },
         });
 
-        const cam_pos = frame[0..3].*;
-        const cam_dir = frame[3..6].*;
-        const cam_up = frame[6..9].*;
+        const cam_pos = cam_point[0..3].*;
+        const cam_dir = cam_point[3..6].*;
+        const cam_up = cam_point[6..9].*;
         const cam_right = Math.cross(cam_dir, cam_up);
 
         push_constants.camera_pos = cam_pos;
@@ -263,125 +264,26 @@ pub fn main(init: std.process.Init) !void {
             @ptrCast(&push_constants),
         );
 
-        // BARRIER 1: Prepare output image layout for Compute Writing
-        const barrier_to_compute = vk.ImageMemoryBarrier{
-            .src_access_mask = .{},
-            .dst_access_mask = .{ .shader_write_bit = true },
-            .old_layout = .undefined,
-            .new_layout = .general,
-            .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
-            .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
-            .image = output_images[frame_idx].image,
-            .subresource_range = .{
-                .aspect_mask = .{ .color_bit = true },
-                .base_mip_level = 0,
-                .level_count = 1,
-                .base_array_layer = 0,
-                .layer_count = 1,
-            },
-        };
-        ctx.dev.cmdPipelineBarrier(
-            command_buffers[frame_idx],
-            .{ .top_of_pipe_bit = true },
-            .{ .compute_shader_bit = true },
-            .{},
-            &.{},
-            &.{},
-            &.{barrier_to_compute},
-        );
+        const cmdbuf = command_buffers[frame_idx];
+        const framebuf = frame_buffers[frame_idx];
 
-        // 3. Bind Resources and Execute Compute Pipeline
-        ctx.dev.cmdBindPipeline(command_buffers[frame_idx], .compute, pipeline);
-        ctx.dev.cmdBindDescriptorSets(
-            command_buffers[frame_idx],
-            .compute,
+        framebuf.prepareForRender(
+            &ctx,
+            cmdbuf,
+            pipeline,
             pipeline_layout,
-            0,
-            &.{desc_sets[frame_idx]},
-            &.{},
+            desc_sets[frame_idx],
         );
+        framebuf.render(&ctx, cmdbuf);
+        framebuf.prepareForDownload(&ctx, cmdbuf);
+        framebuf.download(&ctx, cmdbuf);
+        framebuf.prepareForRead(&ctx, cmdbuf);
 
-        const group_x: u32 = @intCast((frame_width + 7) / 8);
-        const group_y: u32 = @intCast((frame_height + 7) / 8);
-        ctx.dev.cmdDispatch(command_buffers[frame_idx], group_x, group_y, 1);
+        try ctx.dev.endCommandBuffer(cmdbuf);
 
-        // BARRIER 2: Wait for compute writes to finish, transition image for readback transfer
-        const barrier_to_transfer = vk.ImageMemoryBarrier{
-            .src_access_mask = .{ .shader_write_bit = true },
-            .dst_access_mask = .{ .transfer_read_bit = true },
-            .old_layout = .general,
-            .new_layout = .transfer_src_optimal,
-            .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
-            .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
-            .image = output_images[frame_idx].image,
-            .subresource_range = .{
-                .aspect_mask = .{ .color_bit = true },
-                .base_mip_level = 0,
-                .level_count = 1,
-                .base_array_layer = 0,
-                .layer_count = 1,
-            },
-        };
-
-        ctx.dev.cmdPipelineBarrier(
-            command_buffers[frame_idx],
-            .{ .compute_shader_bit = true },
-            .{ .transfer_bit = true },
-            .{},
-            &.{},
-            &.{},
-            &.{barrier_to_transfer},
-        );
-
-        // 4. Copy VRAM Frame Image to Host-Visible Staging/Readback Buffer
-        const copy_region = vk.BufferImageCopy{
-            .buffer_offset = 0,
-            .buffer_row_length = 0,
-            .buffer_image_height = 0,
-            .image_subresource = .{
-                .aspect_mask = .{ .color_bit = true },
-                .mip_level = 0,
-                .base_array_layer = 0,
-                .layer_count = 1,
-            },
-            .image_offset = .{ .x = 0, .y = 0, .z = 0 },
-            .image_extent = vk.Extent3D{ .width = @intCast(frame_width), .height = @intCast(frame_height), .depth = 1 },
-        };
-        ctx.dev.cmdCopyImageToBuffer(
-            command_buffers[frame_idx],
-            output_images[frame_idx].image,
-            .transfer_src_optimal,
-            output_buffers[frame_idx].buffer,
-            &.{copy_region},
-        );
-
-        // BARRIER 3: Ensure memory transfer completes before Host reads from RAM
-        const barrier_to_host = vk.BufferMemoryBarrier{
-            .src_access_mask = .{ .transfer_write_bit = true },
-            .dst_access_mask = .{ .host_read_bit = true },
-            .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
-            .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
-            .buffer = output_buffers[frame_idx].buffer,
-            .offset = 0,
-            .size = vk.WHOLE_SIZE,
-        };
-
-        ctx.dev.cmdPipelineBarrier(
-            command_buffers[frame_idx],
-            .{ .transfer_bit = true },
-            .{ .host_bit = true },
-            .{},
-            &.{},
-            &.{barrier_to_host},
-            &.{},
-        );
-
-        try ctx.dev.endCommandBuffer(command_buffers[frame_idx]);
-
-        // 5. Submit Command Buffer and synchronous wait
         try ctx.dev.queueSubmit(ctx.compute_queue.handle, &[_]vk.SubmitInfo{.{
             .command_buffer_count = 1,
-            .p_command_buffers = &.{command_buffers[frame_idx]},
+            .p_command_buffers = &.{cmdbuf},
         }}, render_fences[frame_idx]);
     }
 
@@ -394,7 +296,7 @@ pub fn main(init: std.process.Init) !void {
 
         _ = try ctx.dev.waitForFences(&.{render_fences[frame_idx]}, .true, std.math.maxInt(u64));
 
-        const pixel_slice: []const u8 = @as([*]const u8, @ptrCast(output_buffers[frame_idx].ptr))[0..output_buffers[frame_idx].size];
+        const pixel_slice: []const u8 = frame_buffers[frame_idx].getSlice();
         try Video.write(&proc, io, pixel_slice);
     }
 
