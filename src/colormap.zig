@@ -2,7 +2,7 @@ const std = @import("std");
 const vk = @import("vulkan");
 const Context = @import("./context.zig").Context;
 
-pub const ColormapImage = struct {
+pub const Colormap = struct {
     image: vk.Image,
     image_view: vk.ImageView,
     image_mem: vk.DeviceMemory,

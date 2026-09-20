@@ -77,12 +77,12 @@ uvec2 get_node(uint64_t idx) {
   return curr_chunk.nodes[sub_idx];
 }
 
-// RGB to YUV BT601
+// RGB to YUV BT709
 vec3 rgb_to_yuv(vec3 rgb) {
   return vec3(
-      0.299 * rgb.r + 0.587 * rgb.g + 0.114 * rgb.b,
-      -0.147 * rgb.r - 0.289 * rgb.g + 0.436 * rgb.b + 0.5,
-      0.615 * rgb.r - 0.515 * rgb.g - 0.100 * rgb.b + 0.5
+      0.2126 * rgb.r + 0.7152 * rgb.g + 0.0722 * rgb.b,
+      -0.1146 * rgb.r - 0.3854 * rgb.g + 0.5000 * rgb.b + 0.5,
+      0.5000 * rgb.r - 0.4542 * rgb.g - 0.0458 * rgb.b + 0.5
   );
 }
 

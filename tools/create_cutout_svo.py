@@ -1,3 +1,4 @@
+import gc
 import argparse
 import struct
 from concurrent.futures import ProcessPoolExecutor
@@ -75,6 +76,7 @@ def build_octree_numba(
     root_center,
     root_size,
     max_nodes,
+    max_target_depth,
 ):
     """Build octree using pre-allocated flat arrays instead of heap-allocated objects."""
     children = np.full((max_nodes, 8), -1, dtype=np.int32)
@@ -100,7 +102,7 @@ def build_octree_numba(
         curr_size = root_size
         depth = 0
 
-        while curr_size > (dx * 1.001):
+        while curr_size > (dx * 1.001) and depth < max_target_depth:
             octant = 0
             if cell_x >= ccx:
                 octant |= 1
@@ -128,9 +130,14 @@ def build_octree_numba(
         if depth > max_depth:
             max_depth = depth
 
-        is_leaf[curr_node] = True
-        qty[curr_node] = q
-        weight[curr_node] = w
+        if is_leaf[curr_node]:
+            qty[curr_node] = qty[curr_node] + q
+            weight[curr_node] = weight[curr_node] + w
+        else:
+            is_leaf[curr_node] = True
+            qty[curr_node] = q
+            weight[curr_node] = w
+            depth_arr[depth] += 1
 
     return children, is_leaf, qty, weight, node_count, max_depth
 
@@ -250,10 +257,10 @@ def extract_octant_worker(
         )
 
         if len(cx_arr) > 0:
-            x_list.append(cx_arr.astype(np.float64))
-            y_list.append(cy_arr.astype(np.float64))
-            z_list.append(cz_arr.astype(np.float64))
-            dx_list.append(dx_arr.astype(np.float64))
+            x_list.append(cx_arr.astype(np.float32))
+            y_list.append(cy_arr.astype(np.float32))
+            z_list.append(cz_arr.astype(np.float32))
+            dx_list.append(dx_arr.astype(np.float32))
             qty_list.append(field_data.astype(np.float32))
             w_list.append(weight_data.astype(np.float32))
 
@@ -296,6 +303,9 @@ if __name__ == "__main__":
     parser.add_argument(
         "--output", type=str, required=True, help="Output file path."
     )
+    parser.add_argument(
+        "--max-depth", type=int, required=False, default=21, help="Limit octree depth."
+    )
 
     args = parser.parse_args()
 
@@ -303,6 +313,8 @@ if __name__ == "__main__":
     print("==================================================")
     print("STAGE 1: Dataset Metadata Initialization")
     print("==================================================")
+    yt.utilities.logger.set_log_level("error")
+
     ds = yt.load(args.path)
     name = ds.filename
     max_level = ds.index.max_level
@@ -391,6 +403,9 @@ if __name__ == "__main__":
     qty_all = qty_all[sort_idx]
     w_all = w_all[sort_idx]
 
+    del morton_keys, sort_idx
+    gc.collect()
+
     print("-> Data spatial locality sorted successfully.")
 
     # Step 4: Flat Numba Tree Construction
@@ -410,6 +425,7 @@ if __name__ == "__main__":
         root_center,
         root_size,
         max_expected_nodes,
+        args.max_depth,
     )
 
     print(f"-> Total unique internal nodes created: {total_nodes:,}")

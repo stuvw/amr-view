@@ -6,7 +6,7 @@ const Context = @import("./context.zig").Context;
 const Args = @import("./args.zig");
 const Pipeline = @import("./pipeline.zig");
 const Frame = @import("./frame.zig").Frame;
-const Colormap = @import("./colormap.zig");
+const Colormap = @import("./colormap.zig").Colormap;
 const Sampler = @import("./sampler.zig");
 const Descriptor = @import("./desc_sets.zig");
 const Commands = @import("./commands.zig");
@@ -41,8 +41,8 @@ pub fn main(init: std.process.Init) !void {
     const data_file = result.getString("data-file").?;
     const video_file = result.getOrString("video-file", "./video.mp4");
 
-    const frame_width: usize = result.getOrUint("width", 1920);
-    const frame_height: usize = result.getOrUint("height", 1080);
+    const frame_width: usize = Math.roundEven(result.getOrUint("width", 1920));
+    const frame_height: usize = Math.roundEven(result.getOrUint("height", 1080));
     const fov: f32 = @floatCast(result.getOrFloat("fov", 60));
     const framerate: usize = result.getOrUint("framerate", 30);
 
@@ -83,7 +83,7 @@ pub fn main(init: std.process.Init) !void {
 
     // ------------------------- Colormap -------------------------
 
-    var cmap: Colormap.ColormapImage = undefined;
+    var cmap: Colormap = undefined;
     try cmap.create(&ctx, 256);
     defer cmap.destroy(&ctx);
 
