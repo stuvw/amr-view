@@ -30,7 +30,7 @@ pub const Frame = struct {
             .usage = .{ .storage_bit = true, .transfer_src_bit = true },
             .sharing_mode = .exclusive,
             .initial_layout = .undefined,
-            .flags = .{ .mutable_format_bit = true },
+            .flags = .{ .mutable_format_bit = true, .extended_usage_bit = true },
         }, null);
 
         self.img_mem = try ctx.allocate(

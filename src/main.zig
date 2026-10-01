@@ -1,6 +1,5 @@
 const std = @import("std");
 const vk = @import("vulkan");
-const args = @import("args");
 
 const Context = @import("./context.zig").Context;
 const Args = @import("./args.zig");
@@ -10,11 +9,10 @@ const Colormap = @import("./colormap.zig").Colormap;
 const Sampler = @import("./sampler.zig");
 const Descriptor = @import("./desc_sets.zig");
 const Commands = @import("./commands.zig");
-const PushConstant = @import("./push_constants.zig").PushConstant;
+const PushConstants = @import("./push_constants.zig");
 const SVO = @import("./svo.zig");
 const Video = @import("./video.zig");
 const Path = @import("./path.zig");
-const Math = @import("./math.zig");
 
 pub fn main(init: std.process.Init) !void {
     const io = init.io;
@@ -25,41 +23,15 @@ pub fn main(init: std.process.Init) !void {
 
     // ------------------ Arguments / Constants -------------------
 
-    var parser = try args.ArgumentParser.init(allocator, .{
-        .name = "amr-view",
-        .version = "0.2.0",
-        .description = "A Zig and Vulkan based AMR dataset visualizer.",
-    });
+    var parser = try Args.getParser(allocator);
     defer parser.deinit();
 
-    var result = try Args.parseArgs(&parser, init);
+    try Args.setupArgs(&parser);
 
+    var result = try Args.parseArgs(&parser, init);
     defer result.deinit();
 
-    const cmap_file = result.getString("colormap-file").?;
-    const path_file = result.getString("path-file").?;
-    const data_file = result.getString("data-file").?;
-    const video_file = result.getOrString("video-file", "./video.mp4");
-
-    const frame_width: usize = Math.roundEven(result.getOrUint("width", 1920));
-    const frame_height: usize = Math.roundEven(result.getOrUint("height", 1080));
-    const fov: f32 = @floatCast(result.getOrFloat("fov", 60));
-    const framerate: usize = result.getOrUint("framerate", 30);
-
-    const min_val: f32 = @floatCast(result.getOrFloat("min-val", -3.0));
-    const max_val: f32 = @floatCast(result.getOrFloat("max-val", 3.0));
-
-    const under_color = try Args.parseArray(result.getArray("under-color"), 4, .{ 0.0, 0.0, 0.0, 1.0 });
-    const over_color = try Args.parseArray(result.getArray("over-color"), 4, .{ 1.0, 1.0, 1.0, 1.0 });
-    const bad_color = try Args.parseArray(result.getArray("bad-color"), 4, .{ 0.0, 0.0, 0.0, 0.0 });
-
-    const root_pos = try Args.parseArray(result.getArray("root-pos"), 3, .{ 0.0, 0.0, 0.0 });
-    const root_size: f32 = @floatCast(result.getOrFloat("root-size", 1.0));
-
-    const encoder = result.getEnum(Video.Encoder, "encoder") orelse .x264;
-    const hwaccel = result.getEnum(Video.HWAccel, "hwaccel") orelse .none;
-
-    const mode = result.getEnum(Pipeline.Mode, "mode") orelse .normal;
+    const args = try Args.getArgs(result);
 
     const frames_in_flight = 2;
 
@@ -74,7 +46,7 @@ pub fn main(init: std.process.Init) !void {
     var frame_buffers: [frames_in_flight]Frame = undefined;
 
     for (0..frames_in_flight) |i| {
-        try frame_buffers[i].create(&ctx, frame_width, frame_height);
+        try frame_buffers[i].create(&ctx, args.frame_width, args.frame_height);
     }
 
     defer for (0..frames_in_flight) |i| {
@@ -93,38 +65,13 @@ pub fn main(init: std.process.Init) !void {
     // ------------------- Sparse Voxel Octree --------------------
 
     var metadata: SVO.SVOFileMetadata = undefined;
-    try metadata.get(allocator, io, data_file);
+    try metadata.get(allocator, io, args.data_file);
     defer metadata.destroy(allocator);
     metadata.print();
 
-    var svo: SVO.SVOBuffers = undefined;
-
-    const chunk_size_bytes: u64 = @as(u64, 1) << @intCast(std.math.log2(ctx.max_alloc_size));
-
-    try svo.create(&ctx, allocator, metadata.num_nodes, chunk_size_bytes);
+    var svo: SVO.SVO = undefined;
+    try svo.create(&ctx, allocator, metadata.num_nodes);
     defer svo.destroy(&ctx, allocator);
-
-    const chunk_ptr_buffer = try ctx.dev.createBuffer(&.{
-        .size = @sizeOf(u64) * svo.buffers.len,
-        .usage = .{ .storage_buffer_bit = true },
-        .sharing_mode = .exclusive,
-    }, null);
-    defer ctx.dev.destroyBuffer(chunk_ptr_buffer, null);
-
-    const chunk_ptr_buffer_reqs = ctx.dev.getBufferMemoryRequirements(chunk_ptr_buffer);
-    const chunk_ptr_buffer_mem = try ctx.allocate(chunk_ptr_buffer_reqs, .{
-        .host_coherent_bit = true,
-        .host_visible_bit = true,
-    });
-    defer ctx.dev.freeMemory(chunk_ptr_buffer_mem, null);
-
-    try ctx.dev.bindBufferMemory(chunk_ptr_buffer, chunk_ptr_buffer_mem, 0);
-    const chunk_ptr_buffer_ptr = try ctx.dev.mapMemory(chunk_ptr_buffer_mem, 0, @sizeOf(u64) * svo.buffers.len, .{});
-    defer ctx.dev.unmapMemory(chunk_ptr_buffer_mem);
-
-    for (svo.buffers, @as([*]u64, @ptrCast(@alignCast(chunk_ptr_buffer_ptr)))) |src, *dest| {
-        dest.* = src.ptr;
-    }
 
     // ------------------ Shader Binding Layouts ------------------
 
@@ -139,7 +86,7 @@ pub fn main(init: std.process.Init) !void {
     const pipeline_layout = try Pipeline.createPipelineLayout(&ctx, desc_layout);
     defer Pipeline.destroyPipelineLayout(&ctx, pipeline_layout);
 
-    const pipeline = try Pipeline.createComputePipeline(&ctx, pipeline_layout, mode);
+    const pipeline = try Pipeline.createComputePipeline(&ctx, pipeline_layout, args.mode);
     defer Pipeline.destroyPipeline(&ctx, pipeline);
 
     // ---------------- Commands & Synchronization ----------------
@@ -162,7 +109,6 @@ pub fn main(init: std.process.Init) !void {
             frame_buffers[i].img_view_v,
             nearest_sampler,
             cmap.image_view,
-            chunk_ptr_buffer,
         );
         render_fences[i] = try ctx.dev.createFence(&.{ .flags = .{ .signaled_bit = true } }, null);
     }
@@ -171,55 +117,55 @@ pub fn main(init: std.process.Init) !void {
         ctx.dev.destroyFence(render_fences[i], null);
     };
 
-    // '--------------- Data Upload & DMA Transfers ----------------
+    // --------------- Data Upload & DMA Transfers ----------------
 
     {
         const command_buffer = try Commands.createCommandBuffer(&ctx, command_pool);
 
         std.log.info("Uploading SVO to VRAM...", .{});
 
-        try svo.upload(&ctx, command_buffer, io, data_file, metadata.header_size);
+        try svo.upload(&ctx, command_buffer, io, args.data_file, metadata.header_size);
 
-        try cmap.upload(&ctx, command_buffer, io, cmap_file);
+        try cmap.upload(&ctx, command_buffer, io, args.cmap_file);
     }
 
     // ---------------------- Push Constants ----------------------
 
-    var push_constants = PushConstant{
+    var push_constants = PushConstants.PushConstant{
         // Camera info
         .camera_pos = undefined,
         .camera_dir = undefined,
         .camera_right = undefined,
         .camera_up = undefined,
-        .camera_fov = std.math.tan(std.math.degreesToRadians(fov) / 2.0),
+        .camera_fov = std.math.tan(std.math.degreesToRadians(args.fov) / 2.0),
         // Colormap info
-        .under_color = under_color,
-        .over_color = over_color,
-        .bad_color = bad_color,
-        .min_val = min_val,
-        .max_val = max_val,
+        .under_color = args.under_color,
+        .over_color = args.over_color,
+        .bad_color = args.bad_color,
+        .min_val = args.min_val,
+        .max_val = args.max_val,
         // Octree info
-        .root_pos = root_pos ++ .{root_size},
-        .chunk_shift = std.math.log2(chunk_size_bytes / @sizeOf(SVO.OctreeNode)),
+        .root_pos = args.root_pos ++ .{args.root_size},
+        .octree_ptr = svo.ptr,
     };
 
     // ----------------- Initialize Video Stream ------------------
     var proc = try Video.open(
         init.io,
         allocator,
-        frame_width,
-        frame_height,
-        framerate,
-        video_file,
-        encoder,
-        hwaccel,
+        args.frame_width,
+        args.frame_height,
+        args.framerate,
+        args.video_file,
+        args.encoder,
+        args.hwaccel,
     );
 
-    std.log.info("Rendering at {d}x{d}", .{ frame_width, frame_height });
+    std.log.info("Rendering at {d}x{d}", .{ args.frame_width, args.frame_height });
 
     // --------------------- Main Render Loop ---------------------
 
-    const camera_path = try Path.load(path_file, io, allocator);
+    const camera_path = try Path.load(args.path_file, io, allocator);
     defer allocator.free(camera_path);
 
     const num_frames = camera_path.len;
@@ -231,48 +177,41 @@ pub fn main(init: std.process.Init) !void {
 
         const frame_idx = i % frames_in_flight;
 
-        _ = try ctx.dev.waitForFences(&.{render_fences[frame_idx]}, .true, std.math.maxInt(u64));
+        const cmdbuf = command_buffers[frame_idx];
+        const framebuf = frame_buffers[frame_idx];
+        const render_fence = render_fences[frame_idx];
+        const desc_set = desc_sets[frame_idx];
+
+        _ = try ctx.dev.waitForFences(&.{render_fence}, .true, std.math.maxInt(u64));
 
         if (i >= frames_in_flight) {
             const prev_idx = frame_idx;
-            const pixel_slice: []const u8 = frame_buffers[prev_idx].getSlice();
+            const pixel_slice = frame_buffers[prev_idx].getSlice();
             try Video.write(&proc, io, pixel_slice);
         }
 
-        try ctx.dev.resetFences(&[_]vk.Fence{render_fences[frame_idx]});
+        try ctx.dev.resetFences(&[_]vk.Fence{render_fence});
 
-        try ctx.dev.beginCommandBuffer(command_buffers[frame_idx], &.{
+        try ctx.dev.beginCommandBuffer(cmdbuf, &.{
             .flags = .{ .one_time_submit_bit = true },
         });
 
-        const cam_pos = cam_point[0..3].*;
-        const cam_dir = cam_point[3..6].*;
-        const cam_up = cam_point[6..9].*;
-        const cam_right = Math.cross(cam_dir, cam_up);
-
-        push_constants.camera_pos = cam_pos;
-        push_constants.camera_dir = cam_dir;
-        push_constants.camera_right = cam_right;
-        push_constants.camera_up = cam_up;
-
-        ctx.dev.cmdPushConstants(
-            command_buffers[frame_idx],
+        PushConstants.updateConstants(
+            &push_constants,
+            &ctx,
+            cmdbuf,
             pipeline_layout,
-            .{ .compute_bit = true },
-            0,
-            @sizeOf(PushConstant),
-            @ptrCast(&push_constants),
+            cam_point[0..3].*,
+            cam_point[3..6].*,
+            cam_point[6..9].*,
         );
-
-        const cmdbuf = command_buffers[frame_idx];
-        const framebuf = frame_buffers[frame_idx];
 
         framebuf.prepareForRender(
             &ctx,
             cmdbuf,
             pipeline,
             pipeline_layout,
-            desc_sets[frame_idx],
+            desc_set,
         );
         framebuf.render(&ctx, cmdbuf);
         framebuf.prepareForDownload(&ctx, cmdbuf);
@@ -284,7 +223,7 @@ pub fn main(init: std.process.Init) !void {
         try ctx.dev.queueSubmit(ctx.compute_queue.handle, &[_]vk.SubmitInfo{.{
             .command_buffer_count = 1,
             .p_command_buffers = &.{cmdbuf},
-        }}, render_fences[frame_idx]);
+        }}, render_fence);
     }
 
     // Flush remaining frames
@@ -296,7 +235,7 @@ pub fn main(init: std.process.Init) !void {
 
         _ = try ctx.dev.waitForFences(&.{render_fences[frame_idx]}, .true, std.math.maxInt(u64));
 
-        const pixel_slice: []const u8 = frame_buffers[frame_idx].getSlice();
+        const pixel_slice = frame_buffers[frame_idx].getSlice();
         try Video.write(&proc, io, pixel_slice);
     }
 
@@ -305,7 +244,7 @@ pub fn main(init: std.process.Init) !void {
     try Video.close(&proc, init.io);
 
     std.debug.print("\n", .{});
-    std.log.info("Video written to {s}", .{video_file});
+    std.log.info("Video written to {s}", .{args.video_file});
 }
 
 pub fn printProgress(

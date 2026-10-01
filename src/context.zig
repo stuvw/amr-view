@@ -80,9 +80,9 @@ pub const Context = struct {
         const instance = try self.vkb.createInstance(&.{
             .p_application_info = &.{
                 .p_application_name = app_name,
-                .application_version = vk.makeApiVersion(0, 0, 2, 0).toU32(),
+                .application_version = vk.makeApiVersion(0, 0, 3, 0).toU32(),
                 .p_engine_name = app_name,
-                .engine_version = vk.makeApiVersion(0, 0, 2, 0).toU32(),
+                .engine_version = vk.makeApiVersion(0, 0, 3, 0).toU32(),
                 .api_version = vk.API_VERSION_1_2.toU32(),
             },
             .enabled_layer_count = required_layer_names.len,
@@ -199,6 +199,19 @@ pub const Context = struct {
         }, null);
     }
 
+    pub fn allocate_bda_size(self: Context, size: usize, requirements: vk.MemoryRequirements, flags: vk.MemoryPropertyFlags) !vk.DeviceMemory {
+        return try self.dev.allocateMemory(&.{
+            .allocation_size = size,
+            .memory_type_index = try self.findMemoryTypeIndex(requirements.memory_type_bits, flags),
+            .p_next = &vk.MemoryAllocateFlagsInfo{
+                .device_mask = 0,
+                .flags = .{
+                    .device_address_bit = true,
+                },
+            },
+        }, null);
+    }
+
     pub fn queryDeviceLimits(self: *Context) void {
         self.total_vram = 0;
 
@@ -273,7 +286,10 @@ fn initializeCandidate(instance: Instance, candidate: DeviceCandidate) !vk.Devic
     };
 
     var dev_features = vk.PhysicalDeviceFeatures2{
-        .features = .{ .shader_int_64 = .true },
+        .features = .{
+            .shader_int_64 = .true,
+            .sparse_binding = .true,
+        },
         .p_next = &vk_12_features,
     };
 
@@ -356,7 +372,7 @@ fn allocateQueues(instance: Instance, pdev: vk.PhysicalDevice, allocator: Alloca
     for (families, 0..) |properties, i| {
         const family: u32 = @intCast(i);
 
-        if (compute_family == null and properties.queue_flags.compute_bit) {
+        if (compute_family == null and properties.queue_flags.compute_bit and properties.queue_flags.sparse_binding_bit) {
             compute_family = family;
         }
     }

@@ -7,8 +7,9 @@
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 // --- Buffers and Images ---
-layout(buffer_reference, std430) readonly buffer OctreeChunk {
-    uvec2 nodes[];
+
+layout(std430, buffer_reference, buffer_reference_align = 8) readonly buffer NodePtr {
+    uvec2 data;
 };
 
 layout(r8, set = 0, binding = 0) writeonly uniform image2D Y_plane;
@@ -16,10 +17,6 @@ layout(r8, set = 0, binding = 1) writeonly uniform image2D U_plane;
 layout(r8, set = 0, binding = 2) writeonly uniform image2D V_plane;
 
 layout(set = 0, binding = 3) uniform sampler2D colormap_tex;
-
-layout(std430, set = 0, binding = 4) readonly buffer chunks {
-    uint64_t chunk_ptrs[];
-};
 
 shared float U_shared[8][8];
 shared float V_shared[8][8];
@@ -33,7 +30,7 @@ layout(push_constant) uniform Constants {
     vec4 under_color;
     vec4 over_color;
     vec4 bad_color;
-    uint64_t chunk_shift;
+    uint64_t octree;
     float camera_fov;
     float min_val;
     float max_val;
@@ -69,12 +66,8 @@ uint find_octant_containing(vec3 ray_pos, vec3 node_pos) {
 }
 
 uvec2 get_node(uint64_t idx) {
-  uint64_t chunk_idx = idx >> chunk_shift;
-  uint64_t sub_idx = idx & ((1u << chunk_shift) - 1u);
-
-  uint64_t base_addr = chunk_ptrs[chunk_idx];
-  OctreeChunk curr_chunk = OctreeChunk(base_addr);
-  return curr_chunk.nodes[sub_idx];
+  uint64_t addr = uint64_t(octree) + (idx * 8ul);
+  return NodePtr(addr).data;
 }
 
 // RGB to YUV BT709

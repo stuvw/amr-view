@@ -59,24 +59,46 @@ pub const Colormap = struct {
 
         const staging_buffer = try ctx.dev.createBuffer(&.{
             .size = self.size,
-            .usage = .{
-                .transfer_src_bit = true,
-            },
+            .usage = .{ .transfer_src_bit = true },
             .sharing_mode = .exclusive,
         }, null);
         defer ctx.dev.destroyBuffer(staging_buffer, null);
 
-        const reqs = ctx.dev.getBufferMemoryRequirements(staging_buffer);
-        const mem = try ctx.allocate(reqs, .{ .host_visible_bit = true, .host_coherent_bit = true });
+        const mem = try ctx.allocate(
+            ctx.dev.getBufferMemoryRequirements(staging_buffer),
+            .{
+                .host_visible_bit = true,
+                .host_coherent_bit = true,
+            },
+        );
         defer ctx.dev.freeMemory(mem, null);
-        try ctx.dev.bindBufferMemory(staging_buffer, mem, 0);
 
+        try ctx.dev.bindBufferMemory(staging_buffer, mem, 0);
         const staging_ptr = try ctx.dev.mapMemory(mem, 0, self.size, .{});
         defer ctx.dev.unmapMemory(mem);
         const staging_slice = @as([*]u8, @ptrCast(staging_ptr));
 
         try loadColormapFile(io, filename, self.size, staging_slice);
 
+        self.prepareForCopy(ctx, cmdbuf);
+        self.copyToImage(ctx, cmdbuf, staging_buffer);
+        self.prepareForCompute(ctx, cmdbuf);
+
+        try ctx.dev.endCommandBuffer(cmdbuf);
+
+        const upload_fence = try ctx.dev.createFence(&.{}, null);
+        defer ctx.dev.destroyFence(upload_fence, null);
+
+        try ctx.dev.queueSubmit(ctx.compute_queue.handle, &[_]vk.SubmitInfo{.{
+            .command_buffer_count = 1,
+            .p_command_buffers = &.{cmdbuf},
+        }}, upload_fence);
+
+        _ = try ctx.dev.waitForFences(&[_]vk.Fence{upload_fence}, .true, std.math.maxInt(u64));
+        _ = try ctx.dev.queueWaitIdle(ctx.compute_queue.handle);
+    }
+
+    fn prepareForCopy(self: *@This(), ctx: *const Context, cmdbuf: vk.CommandBuffer) void {
         const barrier_to_transfer = vk.ImageMemoryBarrier{
             .src_access_mask = .{},
             .dst_access_mask = .{ .transfer_write_bit = true },
@@ -102,7 +124,9 @@ pub const Colormap = struct {
             &.{},
             &.{barrier_to_transfer},
         );
+    }
 
+    fn copyToImage(self: *@This(), ctx: *const Context, cmdbuf: vk.CommandBuffer, staging_buffer: vk.Buffer) void {
         const region = vk.BufferImageCopy{
             .buffer_offset = 0,
             .buffer_row_length = 0,
@@ -123,7 +147,9 @@ pub const Colormap = struct {
             .transfer_dst_optimal,
             &.{region},
         );
+    }
 
+    fn prepareForCompute(self: *@This(), ctx: *const Context, cmdbuf: vk.CommandBuffer) void {
         const barrier = vk.ImageMemoryBarrier{
             .src_access_mask = .{ .transfer_write_bit = true },
             .dst_access_mask = .{ .shader_read_bit = true },
@@ -149,19 +175,6 @@ pub const Colormap = struct {
             &.{},
             &.{barrier},
         );
-
-        try ctx.dev.endCommandBuffer(cmdbuf);
-
-        const upload_fence = try ctx.dev.createFence(&.{}, null);
-        defer ctx.dev.destroyFence(upload_fence, null);
-
-        try ctx.dev.queueSubmit(ctx.compute_queue.handle, &[_]vk.SubmitInfo{.{
-            .command_buffer_count = 1,
-            .p_command_buffers = &.{cmdbuf},
-        }}, upload_fence);
-
-        _ = try ctx.dev.waitForFences(&[_]vk.Fence{upload_fence}, .true, std.math.maxInt(u64));
-        _ = try ctx.dev.queueWaitIdle(ctx.compute_queue.handle);
     }
 };
 

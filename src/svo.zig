@@ -19,43 +19,137 @@ pub const OctreeNode = extern union {
     raw: u64,
 };
 
-pub const SVOBuffer = struct {
+pub const SVO = struct {
     size: usize,
     buffer: vk.Buffer,
-    memory: vk.DeviceMemory,
+    memory: []vk.DeviceMemory,
     ptr: u64,
 
-    pub fn create(self: *@This(), ctx: *const Context, size: usize) !void {
-        self.size = size;
+    pub fn create(self: *@This(), ctx: *const Context, allocator: std.mem.Allocator, size: usize) !void {
+        self.size = size * @sizeOf(OctreeNode);
+
         self.buffer = try ctx.dev.createBuffer(&.{
-            .size = size,
-            .usage = .{
-                .transfer_dst_bit = true,
-                .storage_buffer_bit = true,
-                .shader_device_address_bit = true,
-            },
+            .size = self.size,
             .sharing_mode = .exclusive,
+            .usage = .{
+                .shader_device_address_bit = true,
+                .storage_buffer_bit = true,
+                .transfer_dst_bit = true, // Might be unnecessary, tbd
+            },
+            .flags = .{ .sparse_binding_bit = true },
         }, null);
-        const mem_reqs = ctx.dev.getBufferMemoryRequirements(self.buffer);
-        self.memory = try ctx.allocate_bda(mem_reqs, .{ .device_local_bit = true });
-        try ctx.dev.bindBufferMemory(self.buffer, self.memory, 0);
+
+        const reqs = ctx.dev.getBufferMemoryRequirements(self.buffer);
+
+        // Round down to nearest alignment
+        const max_alloc_size_aligned = (ctx.max_alloc_size / reqs.alignment) * reqs.alignment;
+
+        // Number of full size buffers
+        const num_full = self.size / max_alloc_size_aligned;
+
+        // Round up remaining size to alignment
+        const remaining = (((self.size % max_alloc_size_aligned) + reqs.alignment - 1) / reqs.alignment) * reqs.alignment;
+
+        var num_allocs = num_full;
+        if (remaining != 0) {
+            num_allocs += 1;
+        }
+
+        self.memory = try allocator.alloc(vk.DeviceMemory, num_allocs);
+
+        for (0..num_full) |i| {
+            self.memory[i] = try ctx.allocate_bda_size(max_alloc_size_aligned, reqs, .{ .device_local_bit = true });
+        }
+
+        if (remaining != 0) {
+            self.memory[num_allocs - 1] = try ctx.allocate_bda_size(remaining, reqs, .{ .device_local_bit = true });
+        }
+
+        const fence = try ctx.dev.createFence(&.{}, null);
+        defer ctx.dev.destroyFence(fence, null);
+
+        const mem_binds = try allocator.alloc(vk.SparseMemoryBind, num_allocs);
+        defer allocator.free(mem_binds);
+
+        for (0..num_full) |i| {
+            mem_binds[i] = .{
+                .memory_offset = 0,
+                .resource_offset = i * max_alloc_size_aligned,
+                .memory = self.memory[i],
+                .size = max_alloc_size_aligned,
+            };
+        }
+
+        if (remaining != 0) {
+            mem_binds[num_allocs - 1] = .{
+                .memory_offset = 0,
+                .resource_offset = num_full * max_alloc_size_aligned,
+                .memory = self.memory[num_allocs - 1],
+                .size = remaining,
+            };
+        }
+
+        try ctx.dev.queueBindSparse(ctx.compute_queue.handle, &[_]vk.BindSparseInfo{
+            .{
+                .buffer_bind_count = 1,
+                .p_buffer_binds = &[_]vk.SparseBufferMemoryBindInfo{
+                    .{
+                        .buffer = self.buffer,
+                        .bind_count = @intCast(num_allocs),
+                        .p_binds = @ptrCast(mem_binds.ptr),
+                    },
+                },
+            },
+        }, fence);
+        _ = try ctx.dev.waitForFences(&[_]vk.Fence{fence}, .true, std.math.maxInt(u64));
+        _ = try ctx.dev.queueWaitIdle(ctx.compute_queue.handle);
+
         self.ptr = ctx.dev.getBufferDeviceAddress(&.{ .buffer = self.buffer });
     }
 
-    pub fn destroy(self: *@This(), ctx: *const Context) void {
-        ctx.dev.freeMemory(self.memory, null);
-        ctx.dev.destroyBuffer(self.buffer, null);
-    }
+    pub fn upload(self: @This(), ctx: *const Context, cmdbuf: vk.CommandBuffer, io: Io, filename: []const u8, header_size: usize) !void {
+        const cwd = Io.Dir.cwd();
 
-    pub fn upload(self: *@This(), ctx: *const Context, cmdbuf: vk.CommandBuffer, reader: *std.Io.File.Reader, staging_buffer: vk.Buffer, staging_slice: []u8) !void {
+        const file = try cwd.openFile(io, filename, .{ .mode = .read_only });
+        defer file.close(io);
+
+        var reader = file.reader(io, &.{});
+
+        try reader.interface.discardAll(header_size);
+
+        const staging_buf_size = 128 * 1024 * 1024; // 128 MiB
+
+        const staging_buffer = try ctx.dev.createBuffer(&.{
+            .size = staging_buf_size,
+            .sharing_mode = .exclusive,
+            .usage = .{
+                .transfer_src_bit = true,
+            },
+        }, null);
+        defer ctx.dev.destroyBuffer(staging_buffer, null);
+
+        const staging_mem = try ctx.allocate(
+            ctx.dev.getBufferMemoryRequirements(staging_buffer),
+            .{
+                .host_coherent_bit = true,
+                .host_visible_bit = true,
+            },
+        );
+        defer ctx.dev.freeMemory(staging_mem, null);
+
+        try ctx.dev.bindBufferMemory(staging_buffer, staging_mem, 0);
+
+        const staging_slice = @as([*]u8, @ptrCast(try ctx.dev.mapMemory(staging_mem, 0, staging_buf_size, .{})))[0..staging_buf_size];
+        defer ctx.dev.unmapMemory(staging_mem);
+
         var num_bytes_left = self.size;
         var offset: usize = 0;
 
-        const upload_fence = try ctx.dev.createFence(&.{}, null);
-        defer ctx.dev.destroyFence(upload_fence, null);
+        const fence = try ctx.dev.createFence(&.{}, null);
+        defer ctx.dev.destroyFence(fence, null);
 
         while (num_bytes_left > 0) {
-            const num_bytes_to_copy = @min(staging_slice.len, num_bytes_left);
+            const num_bytes_to_copy = @min(staging_buf_size, num_bytes_left);
 
             try reader.interface.readSliceAll(staging_slice[0..num_bytes_to_copy]);
 
@@ -90,90 +184,25 @@ pub const SVOBuffer = struct {
 
             try ctx.dev.endCommandBuffer(cmdbuf);
 
-            try ctx.dev.resetFences(&[_]vk.Fence{upload_fence});
+            try ctx.dev.resetFences(&[_]vk.Fence{fence});
             try ctx.dev.queueSubmit(ctx.compute_queue.handle, &[_]vk.SubmitInfo{.{
                 .command_buffer_count = 1,
                 .p_command_buffers = &.{cmdbuf},
-            }}, upload_fence);
+            }}, fence);
 
-            _ = try ctx.dev.waitForFences(&[_]vk.Fence{upload_fence}, .true, std.math.maxInt(u64));
+            _ = try ctx.dev.waitForFences(&[_]vk.Fence{fence}, .true, std.math.maxInt(u64));
 
             num_bytes_left -= num_bytes_to_copy;
             offset += num_bytes_to_copy;
         }
-
-        _ = try ctx.dev.queueWaitIdle(ctx.compute_queue.handle);
-    }
-};
-
-pub const SVOBuffers = struct {
-    buffers: []SVOBuffer,
-
-    pub fn create(
-        self: *@This(),
-        ctx: *const Context,
-        allocator: std.mem.Allocator,
-        num_nodes: usize,
-        max_buf_size: usize,
-    ) !void {
-        const size = num_nodes * @sizeOf(OctreeNode);
-        const num_full_buffers = size / max_buf_size;
-        const last_buf_size = size % max_buf_size;
-
-        var num_buffers = num_full_buffers;
-        if (last_buf_size != 0) {
-            num_buffers += 1;
-        }
-
-        self.buffers = try allocator.alloc(SVOBuffer, num_buffers);
-
-        for (0..num_full_buffers) |i| {
-            try self.buffers[i].create(ctx, max_buf_size);
-        }
-
-        if (last_buf_size != 0) {
-            try self.buffers[num_buffers - 1].create(ctx, last_buf_size);
-        }
     }
 
-    pub fn destroy(self: *@This(), ctx: *const Context, allocator: std.mem.Allocator) void {
-        for (self.buffers) |*buffer| {
-            buffer.destroy(ctx);
+    pub fn destroy(self: @This(), ctx: *const Context, allocator: std.mem.Allocator) void {
+        for (self.memory) |mem| {
+            ctx.dev.freeMemory(mem, null);
         }
-        allocator.free(self.buffers);
-    }
-
-    pub fn upload(self: *@This(), ctx: *const Context, cmdbuf: vk.CommandBuffer, io: std.Io, filename: []const u8, header_size: usize) !void {
-        const cwd = Io.Dir.cwd();
-
-        const file = try cwd.openFile(io, filename, .{ .mode = .read_only });
-        defer file.close(io);
-
-        var reader = file.reader(io, &.{});
-
-        try reader.interface.discardAll(header_size);
-
-        const staging_buf_size = 128 * 1024 * 1024; // 128 MiB
-
-        const staging_buffer = try ctx.dev.createBuffer(&.{
-            .size = staging_buf_size,
-            .usage = .{ .transfer_src_bit = true },
-            .sharing_mode = .exclusive,
-        }, null);
-        defer ctx.dev.destroyBuffer(staging_buffer, null);
-
-        const reqs = ctx.dev.getBufferMemoryRequirements(staging_buffer);
-        const mem = try ctx.allocate(reqs, .{ .host_visible_bit = true, .host_coherent_bit = true });
-        defer ctx.dev.freeMemory(mem, null);
-        try ctx.dev.bindBufferMemory(staging_buffer, mem, 0);
-
-        const staging_ptr = try ctx.dev.mapMemory(mem, 0, staging_buf_size, .{});
-        defer ctx.dev.unmapMemory(mem);
-        const staging_slice = @as([*]u8, @ptrCast(staging_ptr))[0..staging_buf_size];
-
-        for (self.buffers) |*buffer| {
-            try buffer.upload(ctx, cmdbuf, &reader, staging_buffer, staging_slice);
-        }
+        allocator.free(self.memory);
+        ctx.dev.destroyBuffer(self.buffer, null);
     }
 };
 

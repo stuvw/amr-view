@@ -1,7 +1,19 @@
 const std = @import("std");
 const args = @import("args");
 
-pub fn parseArgs(parser: *args.ArgumentParser, init: std.process.Init) !args.ParseResult {
+const Video = @import("./video.zig");
+const Pipeline = @import("./pipeline.zig");
+const Math = @import("./math.zig");
+
+pub fn getParser(allocator: std.mem.Allocator) !args.ArgumentParser {
+    return try args.ArgumentParser.init(allocator, .{
+        .name = "amr-view",
+        .version = "0.3.0",
+        .description = "A Zig and Vulkan based AMR dataset visualizer.",
+    });
+}
+
+pub fn setupArgs(parser: *args.ArgumentParser) !void {
     try parser.addFileOption("colormap-file", .{
         .help = "Input colormap file",
         .required = true,
@@ -107,11 +119,68 @@ pub fn parseArgs(parser: *args.ArgumentParser, init: std.process.Init) !args.Par
         .default = "normal",
         .value_type = .choice,
     });
+}
 
+pub fn parseArgs(parser: *args.ArgumentParser, init: std.process.Init) !args.ParseResult {
     return try parser.parseProcess(init);
 }
 
-pub fn parseArray(arr: ?[]const []const u8, comptime size: comptime_int, comptime default: [size]f32) ![size]f32 {
+pub fn getArgs(result: args.ParseResult) !struct {
+    data_file: []const u8,
+    path_file: []const u8,
+    cmap_file: []const u8,
+    video_file: []const u8,
+
+    frame_width: usize,
+    frame_height: usize,
+
+    fov: f32,
+    framerate: usize,
+
+    min_val: f32,
+    max_val: f32,
+
+    under_color: [4]f32,
+    over_color: [4]f32,
+    bad_color: [4]f32,
+
+    root_pos: [3]f32,
+    root_size: f32,
+
+    encoder: Video.Encoder,
+    hwaccel: Video.HWAccel,
+
+    mode: Pipeline.Mode,
+} {
+    return .{
+        .data_file = result.getString("data-file").?,
+        .path_file = result.getString("path-file").?,
+        .cmap_file = result.getString("colormap-file").?,
+        .video_file = result.getOrString("video-file", "video.mp4"),
+
+        .frame_width = Math.roundEven(result.getOrUint("width", 1920)),
+        .frame_height = Math.roundEven(result.getOrUint("height", 1080)),
+        .fov = @floatCast(result.getOrFloat("fov", 60)),
+        .framerate = result.getOrUint("framerate", 30),
+
+        .min_val = @floatCast(result.getOrFloat("min-val", -3.0)),
+        .max_val = @floatCast(result.getOrFloat("max-val", 3.0)),
+
+        .under_color = try parseArray(result.getArray("under-color"), 4, .{ 0.0, 0.0, 0.0, 1.0 }),
+        .over_color = try parseArray(result.getArray("over-color"), 4, .{ 1.0, 1.0, 1.0, 1.0 }),
+        .bad_color = try parseArray(result.getArray("bad-color"), 4, .{ 0.0, 0.0, 0.0, 0.0 }),
+
+        .root_pos = try parseArray(result.getArray("root-pos"), 3, .{ 0.0, 0.0, 0.0 }),
+        .root_size = @floatCast(result.getOrFloat("root-size", 1.0)),
+
+        .encoder = result.getEnum(Video.Encoder, "encoder") orelse .x264,
+        .hwaccel = result.getEnum(Video.HWAccel, "hwaccel") orelse .none,
+
+        .mode = result.getEnum(Pipeline.Mode, "mode") orelse .normal,
+    };
+}
+
+fn parseArray(arr: ?[]const []const u8, comptime size: comptime_int, comptime default: [size]f32) ![size]f32 {
     if (arr) |a| {
         if (a.len != size) {
             return error.InvalidSize;
