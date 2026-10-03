@@ -109,6 +109,7 @@ pub fn main(init: std.process.Init) !void {
             frame_buffers[i].img_view_v,
             nearest_sampler,
             cmap.image_view,
+            svo.chunk_ptrs,
         );
         render_fences[i] = try ctx.dev.createFence(&.{ .flags = .{ .signaled_bit = true } }, null);
     }
@@ -146,7 +147,7 @@ pub fn main(init: std.process.Init) !void {
         .max_val = args.max_val,
         // Octree info
         .root_pos = args.root_pos ++ .{args.root_size},
-        .octree_ptr = svo.ptr,
+        .chunk_shift = svo.chunk_shift,
     };
 
     // ----------------- Initialize Video Stream ------------------
