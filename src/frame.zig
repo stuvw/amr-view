@@ -19,10 +19,22 @@ pub const Frame = struct {
         self.height = height;
         self.size = self.width * self.height + self.width * self.height / 2; // yuv420p -> 1.5Bpp
 
+        try self.createImage(ctx);
+        try self.createImageViews(ctx);
+        try self.createBuffer(ctx);
+    }
+
+    pub fn destroy(self: @This(), ctx: *const Context) void {
+        self.destroyBuffer(ctx);
+        self.destroyImageViews(ctx);
+        self.destroyImage(ctx);
+    }
+
+    fn createImage(self: *@This(), ctx: *const Context) !void {
         self.image = try ctx.dev.createImage(&.{
             .image_type = .@"2d",
             .format = .g8_b8_r8_3plane_420_unorm,
-            .extent = .{ .width = @intCast(width), .height = @intCast(height), .depth = 1 },
+            .extent = .{ .width = @intCast(self.width), .height = @intCast(self.height), .depth = 1 },
             .mip_levels = 1,
             .array_layers = 1,
             .samples = .{ .@"1_bit" = true },
@@ -41,7 +53,9 @@ pub const Frame = struct {
         );
 
         try ctx.dev.bindImageMemory(self.image, self.img_mem, 0);
+    }
 
+    fn createImageViews(self: *@This(), ctx: *const Context) !void {
         self.img_view_y = try ctx.dev.createImageView(&.{
             .image = self.image,
             .view_type = .@"2d",
@@ -104,7 +118,9 @@ pub const Frame = struct {
                 .layer_count = 1,
             },
         }, null);
+    }
 
+    fn createBuffer(self: *@This(), ctx: *const Context) !void {
         self.buffer = try ctx.dev.createBuffer(&.{
             .size = self.size,
             .sharing_mode = .exclusive,
@@ -125,20 +141,25 @@ pub const Frame = struct {
         self.ptr = try ctx.dev.mapMemory(self.buf_mem, 0, self.size, .{});
     }
 
-    pub fn destroy(self: @This(), ctx: *const Context) void {
-        ctx.dev.unmapMemory(self.buf_mem);
-        ctx.dev.freeMemory(self.buf_mem, null);
-        ctx.dev.destroyBuffer(self.buffer, null);
-
-        ctx.dev.destroyImageView(self.img_view_y, null);
-        ctx.dev.destroyImageView(self.img_view_u, null);
-        ctx.dev.destroyImageView(self.img_view_v, null);
+    fn destroyImage(self: *const @This(), ctx: *const Context) void {
         ctx.dev.freeMemory(self.img_mem, null);
         ctx.dev.destroyImage(self.image, null);
     }
 
+    fn destroyImageViews(self: *const @This(), ctx: *const Context) void {
+        ctx.dev.destroyImageView(self.img_view_y, null);
+        ctx.dev.destroyImageView(self.img_view_u, null);
+        ctx.dev.destroyImageView(self.img_view_v, null);
+    }
+
+    fn destroyBuffer(self: *const @This(), ctx: *const Context) void {
+        ctx.dev.unmapMemory(self.buf_mem);
+        ctx.dev.freeMemory(self.buf_mem, null);
+        ctx.dev.destroyBuffer(self.buffer, null);
+    }
+
     pub fn prepareForRender(
-        self: @This(),
+        self: *const @This(),
         ctx: *const Context,
         cmdbuf: vk.CommandBuffer,
         pipeline: vk.Pipeline,
@@ -189,7 +210,7 @@ pub const Frame = struct {
     }
 
     pub fn render(
-        self: @This(),
+        self: *const @This(),
         ctx: *const Context,
         cmdbuf: vk.CommandBuffer,
     ) void {
@@ -232,7 +253,7 @@ pub const Frame = struct {
     }
 
     pub fn download(
-        self: @This(),
+        self: *const @This(),
         ctx: *const Context,
         cmdbuf: vk.CommandBuffer,
     ) void {
@@ -287,7 +308,7 @@ pub const Frame = struct {
         );
     }
 
-    pub fn prepareForRead(self: @This(), ctx: *const Context, cmdbuf: vk.CommandBuffer) void {
+    pub fn prepareForRead(self: *const @This(), ctx: *const Context, cmdbuf: vk.CommandBuffer) void {
         const barrier_to_host = vk.BufferMemoryBarrier{
             .size = vk.WHOLE_SIZE,
             .offset = 0,
@@ -309,7 +330,7 @@ pub const Frame = struct {
         );
     }
 
-    pub fn getSlice(self: @This()) []const u8 {
+    pub fn getSlice(self: *const @This()) []const u8 {
         return @as([*]const u8, @ptrCast(self.ptr))[0..self.size];
     }
 };

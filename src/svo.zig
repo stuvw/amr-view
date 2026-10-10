@@ -46,7 +46,7 @@ pub const SVOChunk = struct {
         self.ptr = ctx.dev.getBufferDeviceAddress(&.{ .buffer = self.buffer });
     }
 
-    pub fn destroy(self: *@This(), ctx: *const Context) void {
+    pub fn destroy(self: *const @This(), ctx: *const Context) void {
         ctx.dev.freeMemory(self.memory, null);
         ctx.dev.destroyBuffer(self.buffer, null);
     }
@@ -165,7 +165,7 @@ pub const SVO = struct {
         }
     }
 
-    pub fn destroy(self: *@This(), ctx: *const Context, allocator: std.mem.Allocator) void {
+    pub fn destroy(self: *const @This(), ctx: *const Context, allocator: std.mem.Allocator) void {
         ctx.dev.freeMemory(self.chunk_ptrs_mem, null);
         ctx.dev.destroyBuffer(self.chunk_ptrs, null);
         for (self.chunks) |*buffer| {

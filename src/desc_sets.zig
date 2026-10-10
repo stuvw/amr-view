@@ -73,13 +73,12 @@ pub fn updateDescriptorSets(
     cmap_image: vk.ImageView,
     chunk_ptrs: vk.Buffer,
 ) !vk.DescriptorSet {
-    var sets: [1]vk.DescriptorSet = undefined;
+    var set: vk.DescriptorSet = undefined;
     try ctx.dev.allocateDescriptorSets(&.{
         .descriptor_pool = desc_pool,
         .descriptor_set_count = 1,
         .p_set_layouts = &[_]vk.DescriptorSetLayout{desc_layout},
-    }, &sets);
-    const set = sets[0];
+    }, @ptrCast(&set));
 
     const y_plane_img_info = vk.DescriptorImageInfo{ .image_view = y_img, .image_layout = .general, .sampler = .null_handle };
     const u_plane_img_info = vk.DescriptorImageInfo{ .image_view = u_img, .image_layout = .general, .sampler = .null_handle };

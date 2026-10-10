@@ -8,7 +8,7 @@ const Math = @import("./math.zig");
 pub fn getParser(allocator: std.mem.Allocator) !args.ArgumentParser {
     return try args.ArgumentParser.init(allocator, .{
         .name = "amr-view",
-        .version = "0.3.0",
+        .version = "0.4.0",
         .description = "A Zig and Vulkan based AMR dataset visualizer.",
     });
 }
@@ -108,7 +108,7 @@ pub fn setupArgs(parser: *args.ArgumentParser) !void {
 
     try parser.addOption("hwaccel", .{
         .help = "Select hardware acceleration. See README for more details",
-        .choices = &.{ "none", "nvenc", "amf", "qsv", "vtb" },
+        .choices = &.{ "none", "vulkan", "nvenc", "amf", "qsv", "vtb" },
         .default = "none",
         .value_type = .choice,
     });

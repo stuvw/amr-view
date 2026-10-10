@@ -148,6 +148,7 @@ pub fn main(init: std.process.Init) !void {
         // Octree info
         .root_pos = args.root_pos ++ .{args.root_size},
         .chunk_shift = svo.chunk_shift,
+        .num_chunks = @intCast(svo.chunks.len),
     };
 
     // ----------------- Initialize Video Stream ------------------

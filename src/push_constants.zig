@@ -16,6 +16,7 @@ pub const PushConstant = extern struct {
     over_color: [4]f32,
     bad_color: [4]f32,
     chunk_shift: u64,
+    num_chunks: u32,
     camera_fov: f32,
     min_val: f32,
     max_val: f32,

@@ -2,7 +2,7 @@ const std = @import("std");
 const Io = std.Io;
 
 pub const Encoder = enum { x264, x265, av1 };
-pub const HWAccel = enum { none, nvenc, amf, qsv, vtb };
+pub const HWAccel = enum { none, vulkan, nvenc, amf, qsv, vtb };
 
 pub fn write(process: *std.process.Child, io: Io, buffer: []const u8) !void {
     try process.stdin.?.writeStreamingAll(io, buffer);
@@ -21,12 +21,15 @@ pub fn open(
     var size_buf: [64]u8 = undefined;
     var fps_buf: [32]u8 = undefined;
 
-    const cmd = [_][]const u8{
+    const base_command = [_][]const u8{
         "ffmpeg",
         "-y",
         "-hide_banner",
         "-v",
         "error",
+    };
+
+    const default_args = [_][]const u8{
         "-f",
         "rawvideo",
         "-vcodec",
@@ -53,11 +56,16 @@ pub fn open(
         "0",
     };
 
-    const enc: []const []const u8 = switch (hwaccel) {
+    const encoder_args: []const []const u8 = switch (hwaccel) {
         .none => switch (encoder) {
             .x264 => &.{ "-c:v", "libx264", "-crf", "22", "-preset", "fast" },
             .x265 => &.{ "-c:v", "libx265", "-crf", "22", "-preset", "fast" },
             .av1 => &.{ "-c:v", "libsvtav1", "-crf", "25", "-preset", "11", "-svtav1-params", "lp=6" },
+        },
+        .vulkan => switch (encoder) {
+            .x264 => &.{ "-vf", "hwupload,libplacebo=format=nv12", "-c:v", "h264_vulkan", "-qp", "23", "-rc", "vbr", "-quality", "5", "-tune", "hq", "-usage", "transcode", "-content", "rendered" },
+            .x265 => &.{ "-vf", "hwupload,libplacebo=format=nv12", "-c:v", "hevc_vulkan", "-qp", "23", "-rc", "vbr", "-quality", "5", "-tune", "hq", "-usage", "transcode", "-content", "rendered" },
+            .av1 => &.{ "-vf", "hwupload,libplacebo=format=nv12", "-c:v", "av1_vulkan", "-qp", "25", "-rc", "vbr", "-quality", "5", "-tune", "hq", "-usage", "transcode", "-content", "rendered" },
         },
         .nvenc => switch (encoder) {
             .x264 => &.{ "-c:v", "h264_nvenc", "-cq", "23", "-rc", "vbr", "-qmin", "23", "-qmax", "30", "-preset", "p7", "-tune", "hq" },
@@ -84,9 +92,15 @@ pub fn open(
     var args: std.ArrayList([]const u8) = .empty;
     defer args.deinit(allocator);
 
-    try args.appendSlice(allocator, &cmd);
+    try args.appendSlice(allocator, &base_command);
 
-    try args.appendSlice(allocator, enc);
+    if (hwaccel == .vulkan) {
+        try args.appendSlice(allocator, &.{ "-init_hw_device", "vulkan=vk:0", "-filter_hw_device", "vk" });
+    }
+
+    try args.appendSlice(allocator, &default_args);
+
+    try args.appendSlice(allocator, encoder_args);
 
     try args.append(allocator, video_file);
 

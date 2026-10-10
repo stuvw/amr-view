@@ -125,7 +125,7 @@ The binary will be generated at `./zig-out/bin/amr-view` .
 | --root-size | 1.0 | Edge size of the root node of the SVO |
 | --root-pos | 0,0,0 | Center position of the root of the SVO |
 | --encoder | x264 | Video codec used to encode the output video. Choices: x264, x265, av1 |
-| --hwaccel | none | Use GPU hardware video acceleration. GPU must support requested encoder. Choices: none, nvenc, amf, qsv, vtb |
+| --hwaccel | none | Use GPU hardware video acceleration. GPU must support requested encoder. Choices: none, vulkan, nvenc, amf, qsv, vtb |
 | --mode | normal | Select rendering mode. Choices: normal, vr180, vr360 |
 
 ## Roadmap (Coming soon™)
