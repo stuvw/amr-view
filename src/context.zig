@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const vk = @import("vulkan");
+const DynLib = @import("./dyn_lib.zig").DynLib;
 const Allocator = std.mem.Allocator;
 
 const enable_debug = switch (builtin.mode) {
@@ -29,7 +30,7 @@ pub const Context = struct {
     allocator: Allocator,
 
     vkb: BaseWrapper,
-    vkl: std.DynLib,
+    vkl: DynLib,
 
     instance: Instance,
     debug_messenger: vk.DebugUtilsMessengerEXT,
@@ -55,7 +56,7 @@ pub const Context = struct {
             else => "libvulkan.so.1", // Linux/BSD
         };
 
-        var vk_lib = std.DynLib.open(lib_name) catch |err| {
+        var vk_lib = DynLib.open(lib_name) catch |err| {
             std.log.err("Failed to load Vulkan library '{s}': {}", .{ lib_name, err });
             return err;
         };
@@ -80,9 +81,9 @@ pub const Context = struct {
         const instance = try self.vkb.createInstance(&.{
             .p_application_info = &.{
                 .p_application_name = app_name,
-                .application_version = vk.makeApiVersion(0, 0, 4, 0).toU32(),
+                .application_version = vk.makeApiVersion(0, 0, 5, 0).toU32(),
                 .p_engine_name = app_name,
-                .engine_version = vk.makeApiVersion(0, 0, 4, 0).toU32(),
+                .engine_version = vk.makeApiVersion(0, 0, 5, 0).toU32(),
                 .api_version = vk.API_VERSION_1_2.toU32(),
             },
             .enabled_layer_count = required_layer_names.len,
@@ -285,7 +286,7 @@ fn initializeCandidate(instance: Instance, candidate: DeviceCandidate) !vk.Devic
         .enabled_extension_count = required_device_extensions.len,
         .pp_enabled_extension_names = @ptrCast(&required_device_extensions),
         .enabled_layer_count = 0,
-        .pp_enabled_layer_names = null, // Shader validation was complaining
+        .pp_enabled_layer_names = null,
         .p_next = &dev_features,
     }, null);
 }

@@ -137,7 +137,6 @@ def build_octree_numba(
             is_leaf[curr_node] = True
             qty[curr_node] = q
             weight[curr_node] = w
-            depth_arr[depth] += 1
 
     return children, is_leaf, qty, weight, node_count, max_depth
 

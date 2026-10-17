@@ -2,13 +2,11 @@ const std = @import("std");
 const vk = @import("vulkan");
 
 const Context = @import("./context.zig").Context;
-const Args = @import("./args.zig");
-const Pipeline = @import("./pipeline.zig");
+const ComputePipeline = @import("./pipeline.zig").ComputePipeline;
 const Frame = @import("./frame.zig").Frame;
 const Colormap = @import("./colormap.zig").Colormap;
+const Args = @import("./args.zig");
 const Sampler = @import("./sampler.zig");
-const Descriptor = @import("./desc_sets.zig");
-const Commands = @import("./commands.zig");
 const PushConstants = @import("./push_constants.zig");
 const SVO = @import("./svo.zig");
 const Video = @import("./video.zig");
@@ -41,18 +39,6 @@ pub fn main(init: std.process.Init) !void {
     const ctx = try Context.init(allocator, "amr-view");
     defer ctx.deinit();
 
-    // -------------------------- Output --------------------------
-
-    var frame_buffers: [frames_in_flight]Frame = undefined;
-
-    for (0..frames_in_flight) |i| {
-        try frame_buffers[i].create(&ctx, args.frame_width, args.frame_height);
-    }
-
-    defer for (0..frames_in_flight) |i| {
-        frame_buffers[i].destroy(&ctx);
-    };
-
     // ------------------------- Colormap -------------------------
 
     var cmap: Colormap = undefined;
@@ -73,55 +59,36 @@ pub fn main(init: std.process.Init) !void {
     try svo.create(&ctx, allocator, metadata.num_nodes);
     defer svo.destroy(&ctx, allocator);
 
-    // ------------------ Shader Binding Layouts ------------------
+    // ------------------ Pipeline Creation ------------------
 
-    const desc_pool = try Descriptor.createDescriptorPool(&ctx);
-    defer Descriptor.destroyDescriptorPool(&ctx, desc_pool);
+    var pipeline: ComputePipeline = undefined;
+    try pipeline.create(&ctx, args.mode, frames_in_flight);
+    defer pipeline.destroy(&ctx);
 
-    const desc_layout = try Descriptor.createDescriptorSetLayout(&ctx);
-    defer Descriptor.destroyDescriptorSetLayout(&ctx, desc_layout);
+    // -------------------------- Output --------------------------
 
-    // ------------------- Pipelines & Layouts --------------------
-
-    const pipeline_layout = try Pipeline.createPipelineLayout(&ctx, desc_layout);
-    defer Pipeline.destroyPipelineLayout(&ctx, pipeline_layout);
-
-    const pipeline = try Pipeline.createComputePipeline(&ctx, pipeline_layout, args.mode);
-    defer Pipeline.destroyPipeline(&ctx, pipeline);
-
-    // ---------------- Commands & Synchronization ----------------
-
-    const command_pool = try Commands.createCommandPool(&ctx);
-    defer Commands.destroyCommandPool(&ctx, command_pool);
-
-    var command_buffers: [frames_in_flight]vk.CommandBuffer = undefined;
-    var desc_sets: [frames_in_flight]vk.DescriptorSet = undefined;
-    var render_fences: [frames_in_flight]vk.Fence = undefined;
+    var frame_buffers: [frames_in_flight]Frame = undefined;
 
     for (0..frames_in_flight) |i| {
-        command_buffers[i] = try Commands.createCommandBuffer(&ctx, command_pool);
-        desc_sets[i] = try Descriptor.updateDescriptorSets(
+        try frame_buffers[i].create(
             &ctx,
-            desc_pool,
-            desc_layout,
-            frame_buffers[i].img_view_y,
-            frame_buffers[i].img_view_u,
-            frame_buffers[i].img_view_v,
+            args.frame_width,
+            args.frame_height,
+            pipeline,
             nearest_sampler,
             cmap.image_view,
             svo.chunk_ptrs,
         );
-        render_fences[i] = try ctx.dev.createFence(&.{ .flags = .{ .signaled_bit = true } }, null);
     }
 
     defer for (0..frames_in_flight) |i| {
-        ctx.dev.destroyFence(render_fences[i], null);
+        frame_buffers[i].destroy(&ctx);
     };
 
     // --------------- Data Upload & DMA Transfers ----------------
 
     {
-        const command_buffer = try Commands.createCommandBuffer(&ctx, command_pool);
+        const command_buffer = try pipeline.createCommandBuffer(&ctx);
 
         std.log.info("Uploading SVO to VRAM...", .{});
 
@@ -179,12 +146,9 @@ pub fn main(init: std.process.Init) !void {
 
         const frame_idx = i % frames_in_flight;
 
-        const cmdbuf = command_buffers[frame_idx];
         const framebuf = frame_buffers[frame_idx];
-        const render_fence = render_fences[frame_idx];
-        const desc_set = desc_sets[frame_idx];
 
-        _ = try ctx.dev.waitForFences(&.{render_fence}, .true, std.math.maxInt(u64));
+        _ = try ctx.dev.waitForFences(&.{frame_buffers[frame_idx].fence}, .true, std.math.maxInt(u64));
 
         if (i >= frames_in_flight) {
             const prev_idx = frame_idx;
@@ -192,40 +156,7 @@ pub fn main(init: std.process.Init) !void {
             try Video.write(&proc, io, pixel_slice);
         }
 
-        try ctx.dev.resetFences(&[_]vk.Fence{render_fence});
-
-        try ctx.dev.beginCommandBuffer(cmdbuf, &.{
-            .flags = .{ .one_time_submit_bit = true },
-        });
-
-        PushConstants.updateConstants(
-            &push_constants,
-            &ctx,
-            cmdbuf,
-            pipeline_layout,
-            cam_point[0..3].*,
-            cam_point[3..6].*,
-            cam_point[6..9].*,
-        );
-
-        framebuf.prepareForRender(
-            &ctx,
-            cmdbuf,
-            pipeline,
-            pipeline_layout,
-            desc_set,
-        );
-        framebuf.render(&ctx, cmdbuf);
-        framebuf.prepareForDownload(&ctx, cmdbuf);
-        framebuf.download(&ctx, cmdbuf);
-        framebuf.prepareForRead(&ctx, cmdbuf);
-
-        try ctx.dev.endCommandBuffer(cmdbuf);
-
-        try ctx.dev.queueSubmit(ctx.compute_queue.handle, &[_]vk.SubmitInfo{.{
-            .command_buffer_count = 1,
-            .p_command_buffers = &.{cmdbuf},
-        }}, render_fence);
+        try framebuf.render(&ctx, pipeline, &push_constants, cam_point);
     }
 
     // Flush remaining frames
@@ -235,7 +166,7 @@ pub fn main(init: std.process.Init) !void {
     while (j < num_frames) : (j += 1) {
         const frame_idx = j % frames_in_flight;
 
-        _ = try ctx.dev.waitForFences(&.{render_fences[frame_idx]}, .true, std.math.maxInt(u64));
+        _ = try ctx.dev.waitForFences(&.{frame_buffers[frame_idx].fence}, .true, std.math.maxInt(u64));
 
         const pixel_slice = frame_buffers[frame_idx].getSlice();
         try Video.write(&proc, io, pixel_slice);

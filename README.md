@@ -138,9 +138,9 @@ The binary will be generated at `./zig-out/bin/amr-view` .
 
 <br>
 
-The [rasterizer](https://github.com/stuvw/RenderPath/) quickly gets bottlenecked by the fixed-function rasterization hardware, and fails to render past 4 GiB files, due to a design limitaion.
+The [rasterizer](https://github.com/stuvw/RenderPath/) quickly gets bottlenecked by the fixed-function rasterization hardware, and fails to render past 4 GiB files, due to a design limitation.
 
-Meanwhile, the current approach stays quite steady up to around a billion cells, and performance slowly decreases. Currently, the code supports a maximum file size of 32 GiB, but it would be possible to push that limit back even further.
+The current approach is consistently faster, and can render bigger simulations, with a limit of 32GiB (2^32 cells). This limit could be pushed back further, if need be.
 
 ## VR 180/360
 

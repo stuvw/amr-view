@@ -21,7 +21,7 @@ pub fn open(
     var size_buf: [64]u8 = undefined;
     var fps_buf: [32]u8 = undefined;
 
-    const base_command = [_][]const u8{
+    const base_cmd = [_][]const u8{
         "ffmpeg",
         "-y",
         "-hide_banner",
@@ -29,7 +29,7 @@ pub fn open(
         "error",
     };
 
-    const default_args = [_][]const u8{
+    const input_args = [_][]const u8{
         "-f",
         "rawvideo",
         "-vcodec",
@@ -50,10 +50,6 @@ pub fn open(
         "pc",
         "-i",
         "-",
-        "-pix_fmt",
-        "yuv420p",
-        "-threads",
-        "0",
     };
 
     const encoder_args: []const []const u8 = switch (hwaccel) {
@@ -63,9 +59,9 @@ pub fn open(
             .av1 => &.{ "-c:v", "libsvtav1", "-crf", "25", "-preset", "11", "-svtav1-params", "lp=6" },
         },
         .vulkan => switch (encoder) {
-            .x264 => &.{ "-vf", "hwupload,libplacebo=format=nv12", "-c:v", "h264_vulkan", "-qp", "23", "-rc", "vbr", "-quality", "5", "-tune", "hq", "-usage", "transcode", "-content", "rendered" },
-            .x265 => &.{ "-vf", "hwupload,libplacebo=format=nv12", "-c:v", "hevc_vulkan", "-qp", "23", "-rc", "vbr", "-quality", "5", "-tune", "hq", "-usage", "transcode", "-content", "rendered" },
-            .av1 => &.{ "-vf", "hwupload,libplacebo=format=nv12", "-c:v", "av1_vulkan", "-qp", "25", "-rc", "vbr", "-quality", "5", "-tune", "hq", "-usage", "transcode", "-content", "rendered" },
+            .x264 => &.{ "-init_hw_device", "vulkan=vk:0", "-filter_hw_device", "vk", "-vf", "hwupload,libplacebo=format=nv12", "-c:v", "h264_vulkan", "-qp", "23", "-rc", "vbr", "-quality", "5", "-tune", "hq", "-usage", "transcode", "-content", "rendered" },
+            .x265 => &.{ "-init_hw_device", "vulkan=vk:0", "-filter_hw_device", "vk", "-vf", "hwupload,libplacebo=format=nv12", "-c:v", "hevc_vulkan", "-qp", "23", "-rc", "vbr", "-quality", "5", "-tune", "hq", "-usage", "transcode", "-content", "rendered" },
+            .av1 => &.{ "-init_hw_device", "vulkan=vk:0", "-filter_hw_device", "vk", "-vf", "hwupload,libplacebo=format=nv12", "-c:v", "av1_vulkan", "-qp", "25", "-rc", "vbr", "-quality", "5", "-tune", "hq", "-usage", "transcode", "-content", "rendered" },
         },
         .nvenc => switch (encoder) {
             .x264 => &.{ "-c:v", "h264_nvenc", "-cq", "23", "-rc", "vbr", "-qmin", "23", "-qmax", "30", "-preset", "p7", "-tune", "hq" },
@@ -89,18 +85,31 @@ pub fn open(
         },
     };
 
+    const output_args = [_][]const u8{
+        "-color_primaries",
+        "bt709",
+        "-color_trc",
+        "bt709",
+        "-colorspace",
+        "bt709",
+        "-color_range",
+        "pc",
+        "-pix_fmt",
+        "yuv420p",
+        "-threads",
+        "0",
+    };
+
     var args: std.ArrayList([]const u8) = .empty;
     defer args.deinit(allocator);
 
-    try args.appendSlice(allocator, &base_command);
+    try args.appendSlice(allocator, &base_cmd);
 
-    if (hwaccel == .vulkan) {
-        try args.appendSlice(allocator, &.{ "-init_hw_device", "vulkan=vk:0", "-filter_hw_device", "vk" });
-    }
-
-    try args.appendSlice(allocator, &default_args);
+    try args.appendSlice(allocator, &input_args);
 
     try args.appendSlice(allocator, encoder_args);
+
+    try args.appendSlice(allocator, &output_args);
 
     try args.append(allocator, video_file);
 

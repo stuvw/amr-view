@@ -27,10 +27,12 @@ pub fn updateConstants(
     ctx: *const Context,
     cmdbuf: vk.CommandBuffer,
     pipeline_layout: vk.PipelineLayout,
-    cam_pos: [3]f32,
-    cam_dir: [3]f32,
-    cam_up: [3]f32,
+    cam_point: [9]f32,
 ) void {
+    const cam_pos = cam_point[0..3].*;
+    const cam_dir = cam_point[3..6].*;
+    const cam_up = cam_point[6..9].*;
+
     push_constant.camera_pos = cam_pos;
     push_constant.camera_dir = cam_dir;
     push_constant.camera_up = cam_up;

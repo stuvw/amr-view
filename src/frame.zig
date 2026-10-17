@@ -1,20 +1,38 @@
+const std = @import("std");
 const vk = @import("vulkan");
 const Context = @import("./context.zig").Context;
+const ComputePipeline = @import("./pipeline.zig").ComputePipeline;
+const PushConstants = @import("./push_constants.zig");
 
 pub const Frame = struct {
     size: usize,
     width: usize,
     height: usize,
+
     image: vk.Image,
     img_mem: vk.DeviceMemory,
     img_view_y: vk.ImageView,
     img_view_u: vk.ImageView,
     img_view_v: vk.ImageView,
+
     buffer: vk.Buffer,
     buf_mem: vk.DeviceMemory,
     ptr: ?*anyopaque,
 
-    pub fn create(self: *@This(), ctx: *const Context, width: usize, height: usize) !void {
+    cmdbuf: vk.CommandBuffer,
+    desc_set: vk.DescriptorSet,
+    fence: vk.Fence,
+
+    pub fn create(
+        self: *@This(),
+        ctx: *const Context,
+        width: usize,
+        height: usize,
+        pipeline: ComputePipeline,
+        cmap_sampler: vk.Sampler,
+        cmap_image: vk.ImageView,
+        chunk_ptrs: vk.Buffer,
+    ) !void {
         self.width = width;
         self.height = height;
         self.size = self.width * self.height + self.width * self.height / 2; // yuv420p -> 1.5Bpp
@@ -22,9 +40,23 @@ pub const Frame = struct {
         try self.createImage(ctx);
         try self.createImageViews(ctx);
         try self.createBuffer(ctx);
+
+        self.desc_set = try pipeline.createDescriptorSet(
+            ctx,
+            self.img_view_y,
+            self.img_view_u,
+            self.img_view_v,
+            cmap_sampler,
+            cmap_image,
+            chunk_ptrs,
+        );
+        self.fence = try ctx.dev.createFence(&.{ .flags = .{ .signaled_bit = true } }, null);
+        self.cmdbuf = try pipeline.createCommandBuffer(ctx);
     }
 
-    pub fn destroy(self: @This(), ctx: *const Context) void {
+    pub fn destroy(self: *const @This(), ctx: *const Context) void {
+        ctx.dev.destroyFence(self.fence, null);
+
         self.destroyBuffer(ctx);
         self.destroyImageViews(ctx);
         self.destroyImage(ctx);
@@ -53,6 +85,11 @@ pub const Frame = struct {
         );
 
         try ctx.dev.bindImageMemory(self.image, self.img_mem, 0);
+    }
+
+    fn destroyImage(self: *const @This(), ctx: *const Context) void {
+        ctx.dev.freeMemory(self.img_mem, null);
+        ctx.dev.destroyImage(self.image, null);
     }
 
     fn createImageViews(self: *@This(), ctx: *const Context) !void {
@@ -120,6 +157,12 @@ pub const Frame = struct {
         }, null);
     }
 
+    fn destroyImageViews(self: *const @This(), ctx: *const Context) void {
+        ctx.dev.destroyImageView(self.img_view_y, null);
+        ctx.dev.destroyImageView(self.img_view_u, null);
+        ctx.dev.destroyImageView(self.img_view_v, null);
+    }
+
     fn createBuffer(self: *@This(), ctx: *const Context) !void {
         self.buffer = try ctx.dev.createBuffer(&.{
             .size = self.size,
@@ -141,31 +184,36 @@ pub const Frame = struct {
         self.ptr = try ctx.dev.mapMemory(self.buf_mem, 0, self.size, .{});
     }
 
-    fn destroyImage(self: *const @This(), ctx: *const Context) void {
-        ctx.dev.freeMemory(self.img_mem, null);
-        ctx.dev.destroyImage(self.image, null);
-    }
-
-    fn destroyImageViews(self: *const @This(), ctx: *const Context) void {
-        ctx.dev.destroyImageView(self.img_view_y, null);
-        ctx.dev.destroyImageView(self.img_view_u, null);
-        ctx.dev.destroyImageView(self.img_view_v, null);
-    }
-
     fn destroyBuffer(self: *const @This(), ctx: *const Context) void {
         ctx.dev.unmapMemory(self.buf_mem);
         ctx.dev.freeMemory(self.buf_mem, null);
         ctx.dev.destroyBuffer(self.buffer, null);
     }
 
-    pub fn prepareForRender(
-        self: *const @This(),
-        ctx: *const Context,
-        cmdbuf: vk.CommandBuffer,
-        pipeline: vk.Pipeline,
-        pipeline_layout: vk.PipelineLayout,
-        desc_set: vk.DescriptorSet,
-    ) void {
+    pub fn render(self: *const @This(), ctx: *const Context, pipeline: ComputePipeline, pc: *PushConstants.PushConstant, cam_point: [9]f32) !void {
+        try ctx.dev.resetFences(&[_]vk.Fence{self.fence});
+
+        try ctx.dev.beginCommandBuffer(self.cmdbuf, &.{
+            .flags = .{ .one_time_submit_bit = true },
+        });
+
+        PushConstants.updateConstants(pc, ctx, self.cmdbuf, pipeline.pipeline_layout, cam_point);
+
+        self.prepareForRender(ctx, pipeline.pipeline, pipeline.pipeline_layout);
+        self.dispatchRender(ctx);
+        self.prepareForDownload(ctx);
+        self.download(ctx);
+        self.prepareForRead(ctx);
+
+        try ctx.dev.endCommandBuffer(self.cmdbuf);
+
+        try ctx.dev.queueSubmit(ctx.compute_queue.handle, &[_]vk.SubmitInfo{.{
+            .command_buffer_count = 1,
+            .p_command_buffers = &.{self.cmdbuf},
+        }}, self.fence);
+    }
+
+    fn prepareForRender(self: *const @This(), ctx: *const Context, pipeline: vk.Pipeline, pipeline_layout: vk.PipelineLayout) void {
         const barrier_to_compute = vk.ImageMemoryBarrier{
             .image = self.image,
             .old_layout = .undefined,
@@ -184,7 +232,7 @@ pub const Frame = struct {
         };
 
         ctx.dev.cmdPipelineBarrier(
-            cmdbuf,
+            self.cmdbuf,
             .{ .top_of_pipe_bit = true },
             .{ .compute_shader_bit = true },
             .{},
@@ -194,36 +242,28 @@ pub const Frame = struct {
         );
 
         ctx.dev.cmdBindPipeline(
-            cmdbuf,
+            self.cmdbuf,
             .compute,
             pipeline,
         );
 
         ctx.dev.cmdBindDescriptorSets(
-            cmdbuf,
+            self.cmdbuf,
             .compute,
             pipeline_layout,
             0,
-            &.{desc_set},
+            &.{self.desc_set},
             &.{},
         );
     }
 
-    pub fn render(
-        self: *const @This(),
-        ctx: *const Context,
-        cmdbuf: vk.CommandBuffer,
-    ) void {
+    fn dispatchRender(self: *const @This(), ctx: *const Context) void {
         const group_x: u32 = @intCast((self.width + 7) / 8);
         const group_y: u32 = @intCast((self.height + 7) / 8);
-        ctx.dev.cmdDispatch(cmdbuf, group_x, group_y, 1);
+        ctx.dev.cmdDispatch(self.cmdbuf, group_x, group_y, 1);
     }
 
-    pub fn prepareForDownload(
-        self: @This(),
-        ctx: *const Context,
-        cmdbuf: vk.CommandBuffer,
-    ) void {
+    fn prepareForDownload(self: *const @This(), ctx: *const Context) void {
         const barrier_to_transfer = vk.ImageMemoryBarrier{
             .image = self.image,
             .old_layout = .general,
@@ -242,7 +282,7 @@ pub const Frame = struct {
         };
 
         ctx.dev.cmdPipelineBarrier(
-            cmdbuf,
+            self.cmdbuf,
             .{ .compute_shader_bit = true },
             .{ .transfer_bit = true },
             .{},
@@ -252,11 +292,7 @@ pub const Frame = struct {
         );
     }
 
-    pub fn download(
-        self: *const @This(),
-        ctx: *const Context,
-        cmdbuf: vk.CommandBuffer,
-    ) void {
+    fn download(self: *const @This(), ctx: *const Context) void {
         const copy_regions = [3]vk.BufferImageCopy{
             .{
                 .image_extent = .{ .width = @intCast(self.width), .height = @intCast(self.height), .depth = 1 },
@@ -300,7 +336,7 @@ pub const Frame = struct {
         };
 
         ctx.dev.cmdCopyImageToBuffer(
-            cmdbuf,
+            self.cmdbuf,
             self.image,
             .transfer_src_optimal,
             self.buffer,
@@ -308,7 +344,7 @@ pub const Frame = struct {
         );
     }
 
-    pub fn prepareForRead(self: *const @This(), ctx: *const Context, cmdbuf: vk.CommandBuffer) void {
+    fn prepareForRead(self: *const @This(), ctx: *const Context) void {
         const barrier_to_host = vk.BufferMemoryBarrier{
             .size = vk.WHOLE_SIZE,
             .offset = 0,
@@ -320,7 +356,7 @@ pub const Frame = struct {
         };
 
         ctx.dev.cmdPipelineBarrier(
-            cmdbuf,
+            self.cmdbuf,
             .{ .transfer_bit = true },
             .{ .host_bit = true },
             .{},
