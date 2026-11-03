@@ -149,7 +149,7 @@ It is possible to render headset VR360 and dome VR180 video using the `--mode` f
 ## Credits / Thanks
 
 - Stéphane Rouberol for his recurrent help
-- Corentin Cadiou, designed original rasterization renderer, co-investigator of the Megatron simulation 
+- Corentin Cadiou, designed [original rasterization renderer](https://pub.cphyc.me/.tmp/volume_rendering.html), co-investigator of the Megatron simulation 
 - Maxime Trebitsch, primary investigator of the Obelisk simulation
 - San Han, primary investigator the New Cluster simulation
 - Yohan Dubois, primary investiagtor of the New Horizon simulation
