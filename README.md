@@ -54,12 +54,13 @@ A binary file containing 256 structural RGBA byte-quartets (1024 bytes total). Y
 
 ### Build dependencies
 
-- [Zig Compiler](https://ziglang.org/learn/getting-started/) (v0.16.0 or compatible)
+- [Zig Compiler](https://ziglang.org/learn/getting-started/) (v0.17.0 or compatible)
 
     - MacOS : `brew install zig`
     - Arch Linux : `sudo pacman -S zig`
     - Fedora / RHEL : `sudo dnf install -y zig`
     - Ubuntu / Debian : `sudo apt install zig`
+    - Windows : `winget install -e --id zig.zig`
 
 ### Runtime dependencies
 
@@ -69,12 +70,14 @@ A binary file containing 256 structural RGBA byte-quartets (1024 bytes total). Y
     - Fedora / RHEL : [see here](https://rpmfusion.org/Howto/NVIDIA#Vulkan)
     - Ubuntu / Debian : [see here](https://oneuptime.com/blog/post/2026-03-02-how-to-install-and-configure-vulkan-on-ubuntu/view#installing-vulkan-packages)
     > Installing Vulkan might require more setup if you have an NVIDIA card.
+    - Windows : Vulkan should come installed with your graphics drivers.
 
 - [FFmpeg](https://www.ffmpeg.org/) installed and on `PATH`.
     - MacOS : `brew install ffmpeg`
     - Arch Linux : `sudo pacman -S ffmpeg`
-    - Fedora / RHEL : `sudo dnf install -y ffmpeg` 
+    - Fedora / RHEL : `sudo dnf install -y ffmpeg`
     - Ubuntu / Debian : `sudo apt install ffmpeg`
+    - Windows : `winget install ffmpeg`
 
 ## Installation
 

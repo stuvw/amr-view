@@ -41,7 +41,7 @@ pub fn updateConstants(
     ctx.dev.cmdPushConstants(
         cmdbuf,
         pipeline_layout,
-        .{ .compute_bit = true },
+        .{ .compute = true },
         0,
         @sizeOf(PushConstant),
         @ptrCast(push_constant),

@@ -60,31 +60,31 @@ pub const ComputePipeline = struct {
                     .binding = 0, // Y plane
                     .descriptor_type = .storage_image,
                     .descriptor_count = 1,
-                    .stage_flags = .{ .compute_bit = true },
+                    .stage_flags = .{ .compute = true },
                 },
                 .{
                     .binding = 1, // U plane
                     .descriptor_type = .storage_image,
                     .descriptor_count = 1,
-                    .stage_flags = .{ .compute_bit = true },
+                    .stage_flags = .{ .compute = true },
                 },
                 .{
                     .binding = 2, // V plane
                     .descriptor_type = .storage_image,
                     .descriptor_count = 1,
-                    .stage_flags = .{ .compute_bit = true },
+                    .stage_flags = .{ .compute = true },
                 },
                 .{
                     .binding = 3, // colormap
                     .descriptor_type = .combined_image_sampler,
                     .descriptor_count = 1,
-                    .stage_flags = .{ .compute_bit = true },
+                    .stage_flags = .{ .compute = true },
                 },
                 .{
                     .binding = 4, // chunk pointers
                     .descriptor_type = .storage_buffer,
                     .descriptor_count = 1,
-                    .stage_flags = .{ .compute_bit = true },
+                    .stage_flags = .{ .compute = true },
                 },
             },
         }, null);
@@ -101,7 +101,7 @@ pub const ComputePipeline = struct {
             .push_constant_range_count = 1,
             .p_push_constant_ranges = &.{
                 vk.PushConstantRange{
-                    .stage_flags = .{ .compute_bit = true },
+                    .stage_flags = .{ .compute = true },
                     .offset = 0,
                     .size = @sizeOf(@import("./push_constants.zig").PushConstant),
                 },
@@ -129,16 +129,16 @@ pub const ComputePipeline = struct {
         defer ctx.dev.destroyShaderModule(shader_module, null);
 
         _ = try ctx.dev.createComputePipelines(
-            .null_handle,
+            .null,
             &[_]vk.ComputePipelineCreateInfo{
                 .{
                     .flags = .{},
                     .layout = self.pipeline_layout,
                     .base_pipeline_index = -1,
-                    .base_pipeline_handle = .null_handle,
+                    .base_pipeline_handle = .null,
                     .stage = .{
                         .flags = .{},
-                        .stage = .{ .compute_bit = true },
+                        .stage = .{ .compute = true },
                         .module = shader_module,
                         .p_name = "main",
                         .p_specialization_info = null,
@@ -156,7 +156,7 @@ pub const ComputePipeline = struct {
 
     fn createCommandPool(self: *@This(), ctx: *const Context) !void {
         self.command_pool = try ctx.dev.createCommandPool(&.{
-            .flags = .{ .reset_command_buffer_bit = true },
+            .flags = .{ .reset_command_buffer = true },
             .queue_family_index = ctx.compute_queue.family,
         }, null);
     }
@@ -182,9 +182,9 @@ pub const ComputePipeline = struct {
             .p_set_layouts = &[_]vk.DescriptorSetLayout{self.desc_set_layout},
         }, @ptrCast(&set));
 
-        const y_plane_img_info = vk.DescriptorImageInfo{ .image_view = y_img, .image_layout = .general, .sampler = .null_handle };
-        const u_plane_img_info = vk.DescriptorImageInfo{ .image_view = u_img, .image_layout = .general, .sampler = .null_handle };
-        const v_plane_img_info = vk.DescriptorImageInfo{ .image_view = v_img, .image_layout = .general, .sampler = .null_handle };
+        const y_plane_img_info = vk.DescriptorImageInfo{ .image_view = y_img, .image_layout = .general, .sampler = .null };
+        const u_plane_img_info = vk.DescriptorImageInfo{ .image_view = u_img, .image_layout = .general, .sampler = .null };
+        const v_plane_img_info = vk.DescriptorImageInfo{ .image_view = v_img, .image_layout = .general, .sampler = .null };
         const cmap_img_info = vk.DescriptorImageInfo{ .sampler = cmap_sampler, .image_view = cmap_image, .image_layout = .shader_read_only_optimal };
         const chunk_ptrs_buf_info = vk.DescriptorBufferInfo{ .buffer = chunk_ptrs, .offset = 0, .range = vk.WHOLE_SIZE };
 

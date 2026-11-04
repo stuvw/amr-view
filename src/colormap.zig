@@ -22,15 +22,15 @@ pub const Colormap = struct {
             .extent = vk.Extent3D{ .width = @intCast(size), .height = 1, .depth = 1 },
             .mip_levels = 1,
             .array_layers = 1,
-            .samples = .{ .@"1_bit" = true },
+            .samples = .{ .@"1" = true },
             .tiling = .optimal,
-            .usage = .{ .transfer_dst_bit = true, .sampled_bit = true },
+            .usage = .{ .transfer_dst = true, .sampled = true },
             .sharing_mode = .exclusive,
             .initial_layout = .undefined,
         }, null);
 
         const mem_reqs = ctx.dev.getImageMemoryRequirements(self.image);
-        self.image_mem = try ctx.allocate(mem_reqs, .{ .device_local_bit = true });
+        self.image_mem = try ctx.allocate(mem_reqs, .{ .device_local = true });
         try ctx.dev.bindImageMemory(self.image, self.image_mem, 0);
 
         self.image_view = try ctx.dev.createImageView(&.{
@@ -39,7 +39,7 @@ pub const Colormap = struct {
             .format = .r8g8b8a8_unorm,
             .components = .{ .r = .identity, .g = .identity, .b = .identity, .a = .identity },
             .subresource_range = .{
-                .aspect_mask = .{ .color_bit = true },
+                .aspect_mask = .{ .color = true },
                 .base_mip_level = 0,
                 .level_count = 1,
                 .base_array_layer = 0,
@@ -55,11 +55,11 @@ pub const Colormap = struct {
     }
 
     pub fn upload(self: *@This(), ctx: *const Context, cmdbuf: vk.CommandBuffer, io: std.Io, filename: []const u8) !void {
-        try ctx.dev.beginCommandBuffer(cmdbuf, &.{ .flags = .{ .one_time_submit_bit = true } });
+        try ctx.dev.beginCommandBuffer(cmdbuf, &.{ .flags = .{ .one_time_submit = true } });
 
         const staging_buffer = try ctx.dev.createBuffer(&.{
             .size = self.size,
-            .usage = .{ .transfer_src_bit = true },
+            .usage = .{ .transfer_src = true },
             .sharing_mode = .exclusive,
         }, null);
         defer ctx.dev.destroyBuffer(staging_buffer, null);
@@ -67,8 +67,8 @@ pub const Colormap = struct {
         const mem = try ctx.allocate(
             ctx.dev.getBufferMemoryRequirements(staging_buffer),
             .{
-                .host_visible_bit = true,
-                .host_coherent_bit = true,
+                .host_visible = true,
+                .host_coherent = true,
             },
         );
         defer ctx.dev.freeMemory(mem, null);
@@ -101,14 +101,14 @@ pub const Colormap = struct {
     fn prepareForCopy(self: *@This(), ctx: *const Context, cmdbuf: vk.CommandBuffer) void {
         const barrier_to_transfer = vk.ImageMemoryBarrier{
             .src_access_mask = .{},
-            .dst_access_mask = .{ .transfer_write_bit = true },
+            .dst_access_mask = .{ .transfer_write = true },
             .old_layout = .undefined,
             .new_layout = .transfer_dst_optimal,
             .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
             .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
             .image = self.image,
             .subresource_range = .{
-                .aspect_mask = .{ .color_bit = true },
+                .aspect_mask = .{ .color = true },
                 .base_mip_level = 0,
                 .level_count = 1,
                 .base_array_layer = 0,
@@ -117,8 +117,8 @@ pub const Colormap = struct {
         };
         ctx.dev.cmdPipelineBarrier(
             cmdbuf,
-            .{ .top_of_pipe_bit = true },
-            .{ .transfer_bit = true },
+            .{ .top_of_pipe = true },
+            .{ .transfer = true },
             .{},
             &.{},
             &.{},
@@ -132,7 +132,7 @@ pub const Colormap = struct {
             .buffer_row_length = 0,
             .buffer_image_height = 0,
             .image_subresource = .{
-                .aspect_mask = .{ .color_bit = true },
+                .aspect_mask = .{ .color = true },
                 .mip_level = 0,
                 .base_array_layer = 0,
                 .layer_count = 1,
@@ -151,15 +151,15 @@ pub const Colormap = struct {
 
     fn prepareForCompute(self: *@This(), ctx: *const Context, cmdbuf: vk.CommandBuffer) void {
         const barrier = vk.ImageMemoryBarrier{
-            .src_access_mask = .{ .transfer_write_bit = true },
-            .dst_access_mask = .{ .shader_read_bit = true },
+            .src_access_mask = .{ .transfer_write = true },
+            .dst_access_mask = .{ .shader_read = true },
             .old_layout = .transfer_dst_optimal,
             .new_layout = .shader_read_only_optimal,
             .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
             .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
             .image = self.image,
             .subresource_range = .{
-                .aspect_mask = .{ .color_bit = true },
+                .aspect_mask = .{ .color = true },
                 .base_mip_level = 0,
                 .level_count = 1,
                 .base_array_layer = 0,
@@ -168,8 +168,8 @@ pub const Colormap = struct {
         };
         ctx.dev.cmdPipelineBarrier(
             cmdbuf,
-            .{ .transfer_bit = true },
-            .{ .compute_shader_bit = true },
+            .{ .transfer = true },
+            .{ .compute_shader = true },
             .{},
             &.{},
             &.{},

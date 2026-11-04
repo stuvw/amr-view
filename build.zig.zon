@@ -1,20 +1,23 @@
 .{
     .name = .amr_view,
-    .version = "0.16.0",
+    .version = "0.17.0",
     .dependencies = .{
-        .args = .{
-            .url = "https://github.com/muhammad-fiaz/args.zig/archive/refs/tags/0.0.7.tar.gz",
-            .hash = "args-0.0.7-8hzgbvPiCAAcEM4R90pCppGhHBKi0Uiw90tbGvipjVfc",
+        .vulkan = .{
+            .url = "https://github.com/Snektron/vulkan-zig/archive/refs/heads/zig-0.17-compat.tar.gz",
+            .hash = "vulkan-0.0.0-r7Ytxy2BAwCPqBJUCXp6XXMwWqFD3DNrMLWWQvRRSXOC",
         },
         .vulkan_headers = .{
-            .url = "git+https://github.com/KhronosGroup/Vulkan-Headers#8d6039a455a7ecc7d2a592ff97f62db4e59b70bf",
-            .hash = "N-V-__8AAPdJewI-Ti5p45KnTAAngGBG3aURyXJXXTKmPvKW",
+            .url = "git+https://github.com/KhronosGroup/Vulkan-Headers#9fbc2a782ee3f8a4db64e7d991e23da75e893f44",
+            .hash = "N-V-__8AANA1igIhUurP4XBUZB1PKtn20JEJ20N7RvUmG5ah",
         },
-        .vulkan = .{
-            .url = "https://github.com/Snektron/vulkan-zig/archive/refs/heads/zig-0.16-compat.tar.gz",
-            .hash = "vulkan-0.0.0-r7Ytx7N9AwD7IZt5_XNHtkJ4G9qY0pCH-cpcOsbL8wzD",
+        .args = .{
+            .url = "https://github.com/muhammad-fiaz/args.zig/archive/refs/tags/0.0.9.tar.gz",
+            .hash = "args-0.0.9-8hzgbh4KCgB9UYVNvr6R_GmZgq7j1DpV2kGcqn3F36Q1",
         },
     },
-    .paths = .{""},
+    .paths = .{
+        "build.zig.zon", "build.zig", "src", "LICENCE", "README.md",
+        "tools",         "examples",
+    },
     .fingerprint = 0xb012d22b4e3eb0ba,
 }

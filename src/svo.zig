@@ -30,16 +30,16 @@ pub const SVOChunk = struct {
         self.buffer = try ctx.dev.createBuffer(&.{
             .size = size,
             .usage = .{
-                .transfer_dst_bit = true,
-                .storage_buffer_bit = true,
-                .shader_device_address_bit = true,
+                .transfer_dst = true,
+                .storage_buffer = true,
+                .shader_device_address = true,
             },
             .sharing_mode = .exclusive,
         }, null);
 
         self.memory = try ctx.allocate_bda(
             ctx.dev.getBufferMemoryRequirements(self.buffer),
-            .{ .device_local_bit = true },
+            .{ .device_local = true },
         );
         try ctx.dev.bindBufferMemory(self.buffer, self.memory, 0);
 
@@ -63,8 +63,8 @@ pub const SVOChunk = struct {
 
             try reader.interface.readSliceAll(staging_slice[0..num_bytes_to_copy]);
 
-            // NOTE: cmdbuf has the reset_command_buffer_bit set, no need to manually reset it here
-            try ctx.dev.beginCommandBuffer(cmdbuf, &.{ .flags = .{ .one_time_submit_bit = true } });
+            // NOTE: cmdbuf has the reset_command_buffer set, no need to manually reset it here
+            try ctx.dev.beginCommandBuffer(cmdbuf, &.{ .flags = .{ .one_time_submit = true } });
 
             ctx.dev.cmdCopyBuffer(cmdbuf, staging_buffer, self.buffer, &[_]vk.BufferCopy{.{
                 .src_offset = 0,
@@ -73,8 +73,8 @@ pub const SVOChunk = struct {
             }});
 
             const buffer_barrier = vk.BufferMemoryBarrier{
-                .src_access_mask = .{ .transfer_write_bit = true },
-                .dst_access_mask = .{ .shader_read_bit = true },
+                .src_access_mask = .{ .transfer_write = true },
+                .dst_access_mask = .{ .shader_read = true },
                 .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
                 .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
                 .buffer = self.buffer,
@@ -84,8 +84,8 @@ pub const SVOChunk = struct {
 
             ctx.dev.cmdPipelineBarrier(
                 cmdbuf,
-                .{ .transfer_bit = true },
-                .{ .compute_shader_bit = true },
+                .{ .transfer = true },
+                .{ .compute_shader = true },
                 .{},
                 &.{},
                 &.{buffer_barrier},
@@ -147,13 +147,13 @@ pub const SVO = struct {
 
         self.chunk_ptrs = try ctx.dev.createBuffer(&.{
             .size = @sizeOf(u64) * self.chunks.len,
-            .usage = .{ .storage_buffer_bit = true },
+            .usage = .{ .storage_buffer = true },
             .sharing_mode = .exclusive,
         }, null);
 
         self.chunk_ptrs_mem = try ctx.allocate(ctx.dev.getBufferMemoryRequirements(self.chunk_ptrs), .{
-            .device_local_bit = true,
-            .host_visible_bit = true,
+            .device_local = true,
+            .host_visible = true,
         });
 
         try ctx.dev.bindBufferMemory(self.chunk_ptrs, self.chunk_ptrs_mem, 0);
@@ -188,13 +188,13 @@ pub const SVO = struct {
 
         const staging_buffer = try ctx.dev.createBuffer(&.{
             .size = staging_buf_size,
-            .usage = .{ .transfer_src_bit = true },
+            .usage = .{ .transfer_src = true },
             .sharing_mode = .exclusive,
         }, null);
         defer ctx.dev.destroyBuffer(staging_buffer, null);
 
         const reqs = ctx.dev.getBufferMemoryRequirements(staging_buffer);
-        const mem = try ctx.allocate(reqs, .{ .host_visible_bit = true, .host_coherent_bit = true });
+        const mem = try ctx.allocate(reqs, .{ .host_visible = true, .host_coherent = true });
         defer ctx.dev.freeMemory(mem, null);
         try ctx.dev.bindBufferMemory(staging_buffer, mem, 0);
 

@@ -22,7 +22,7 @@ const Device = vk.DeviceProxy;
 
 var global_vkGetInstanceProcAddr: vk.PfnGetInstanceProcAddr = undefined;
 
-fn vulkan_loader(instance: vk.Instance, proc_name: [*:0]const u8) callconv(.c) vk.PfnVoidFunction {
+fn vulkan_loader(instance: ?vk.Instance, proc_name: [*:0]const u8) callconv(.c) vk.PfnVoidFunction {
     return global_vkGetInstanceProcAddr(instance, proc_name);
 }
 
@@ -76,7 +76,7 @@ pub const Context = struct {
 
         var extension_names: std.ArrayList([*:0]const u8) = .empty;
         defer extension_names.deinit(allocator);
-        if (enable_debug) try extension_names.append(allocator, vk.extensions.ext_debug_utils.name);
+        if (enable_debug) try extension_names.append(allocator, vk.instance_extensions.ext_debug_utils.name);
 
         const instance = try self.vkb.createInstance(&.{
             .p_application_info = &.{
@@ -102,15 +102,15 @@ pub const Context = struct {
         if (enable_debug) {
             self.debug_messenger = try self.instance.createDebugUtilsMessengerEXT(&.{
                 .message_severity = .{
-                    .verbose_bit_ext = true,
-                    .info_bit_ext = true,
-                    .warning_bit_ext = true,
-                    .error_bit_ext = true,
+                    .verbose_ext = true,
+                    .info_ext = true,
+                    .warning_ext = true,
+                    .error_ext = true,
                 },
                 .message_type = .{
-                    .general_bit_ext = true,
-                    .validation_bit_ext = true,
-                    .performance_bit_ext = true,
+                    .general_ext = true,
+                    .validation_ext = true,
+                    .performance_ext = true,
                 },
                 .pfn_user_callback = &debugUtilsMessengerCallback,
                 .p_user_data = null,
@@ -194,7 +194,7 @@ pub const Context = struct {
             .p_next = &vk.MemoryAllocateFlagsInfo{
                 .device_mask = 0,
                 .flags = .{
-                    .device_address_bit = true,
+                    .device_address = true,
                 },
             },
         }, null);
@@ -205,7 +205,7 @@ pub const Context = struct {
 
         for (0..self.mem_props.memory_heap_count) |i| {
             const heap = self.mem_props.memory_heaps[i];
-            const is_device_local = self.mem_props.memory_heaps[i].flags.device_local_bit;
+            const is_device_local = self.mem_props.memory_heaps[i].flags.device_local;
 
             if (is_device_local) {
                 if (heap.size > self.total_vram) {
@@ -301,13 +301,37 @@ const QueueAllocation = struct {
     compute_family: u32,
 };
 
-fn debugUtilsMessengerCallback(severity: vk.DebugUtilsMessageSeverityFlagsEXT, msg_type: vk.DebugUtilsMessageTypeFlagsEXT, callback_data: ?*const vk.DebugUtilsMessengerCallbackDataEXT, _: ?*anyopaque) callconv(.c) vk.Bool32 {
-    const severity_str = if (severity.verbose_bit_ext) "verbose" else if (severity.info_bit_ext) "info" else if (severity.warning_bit_ext) "warning" else if (severity.error_bit_ext) "error" else "unknown";
+fn debugUtilsMessengerCallback(
+    message_severity: vk.DebugUtilsMessageSeverityFlagsEXT,
+    message_types: vk.DebugUtilsMessageTypeFlagsEXT,
+    p_callback_data: ?*const vk.DebugUtilsMessengerCallbackDataEXT,
+    p_user_data: ?*anyopaque,
+) callconv(vk.vulkan_call_conv) vk.Bool32 {
+    _ = message_types;
+    _ = p_user_data;
 
-    const type_str = if (msg_type.general_bit_ext) "general" else if (msg_type.validation_bit_ext) "validation" else if (msg_type.performance_bit_ext) "performance" else if (msg_type.device_address_binding_bit_ext) "device addr" else "unknown";
+    const default: [*:0]const u8 = "Unrecognized validation layer message";
+    const msg = (if (p_callback_data) |cb| cb.p_message else null) orelse default;
+    const log = std.log.scoped(.vulkan);
+    switch (message_severity) {
+        .{ .error_ext = true } => log.err("{s}", .{msg}),
+        .{ .warning_ext = true } => log.warn("{s}", .{msg}),
+        .{ .info_ext = true } => log.info("{s}", .{msg}),
+        .{ .verbose_ext = true } => log.debug("{s}", .{msg}), // reverse order so the worst is printed
+        else => log.info("{s}", .{msg}),
+    }
 
-    const message: [*c]const u8 = if (callback_data) |cb_data| cb_data.p_message else "NO MESSAGE!";
-    std.debug.print("[{s}][{s}]. Message:\n  {s}\n", .{ severity_str, type_str, message });
+    const data = p_callback_data orelse return .false;
+    if (data.object_count == 0 or data.p_objects == null) return .false;
+
+    const objects = data.p_objects.?[0..data.object_count];
+    for (objects) |obj| {
+        const name = if (obj.p_object_name) |ptr| std.mem.span(ptr) else "Unnamed";
+        std.debug.print("    | {s} 0x{x} {s}\n", .{ @tagName(obj.object_type), obj.object_handle, name });
+    }
+    if (message_severity.error_ext == true) @panic("vulkan error");
+    // panic to have the stack trace of where the error happened
+    // besides that sometimes the code crashes something and you have to manually force kill it with killall, panic prevents this
 
     return .false;
 }
@@ -359,7 +383,7 @@ fn allocateQueues(instance: Instance, pdev: vk.PhysicalDevice, allocator: Alloca
     for (families, 0..) |properties, i| {
         const family: u32 = @intCast(i);
 
-        if (compute_family == null and properties.queue_flags.compute_bit) {
+        if (compute_family == null and properties.queue_flags.compute) {
             compute_family = family;
         }
     }

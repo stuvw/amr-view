@@ -1,5 +1,4 @@
 const std = @import("std");
-const vk = @import("vulkan");
 
 const Context = @import("./context.zig").Context;
 const ComputePipeline = @import("./pipeline.zig").ComputePipeline;
@@ -193,7 +192,8 @@ pub fn printProgress(
     const white_esc = "\x1B[47m";
     const default_esc = "\x1B[49m";
 
-    var progress_buffer = (white_esc ++ " " ** (progress_bar_size + default_esc.len)).*;
+    const whitespace: [(progress_bar_size + default_esc.len)]u8 = @splat(' ');
+    var progress_buffer = (white_esc ++ whitespace).*;
 
     const num_progress_nodes: usize = @trunc(progress_percentage / (100.0 / @as(comptime_float, progress_bar_size)));
 

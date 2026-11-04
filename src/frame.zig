@@ -50,7 +50,7 @@ pub const Frame = struct {
             cmap_image,
             chunk_ptrs,
         );
-        self.fence = try ctx.dev.createFence(&.{ .flags = .{ .signaled_bit = true } }, null);
+        self.fence = try ctx.dev.createFence(&.{ .flags = .{ .signaled = true } }, null);
         self.cmdbuf = try pipeline.createCommandBuffer(ctx);
     }
 
@@ -69,18 +69,18 @@ pub const Frame = struct {
             .extent = .{ .width = @intCast(self.width), .height = @intCast(self.height), .depth = 1 },
             .mip_levels = 1,
             .array_layers = 1,
-            .samples = .{ .@"1_bit" = true },
+            .samples = .{ .@"1" = true },
             .tiling = .optimal,
-            .usage = .{ .storage_bit = true, .transfer_src_bit = true },
+            .usage = .{ .storage = true, .transfer_src = true },
             .sharing_mode = .exclusive,
             .initial_layout = .undefined,
-            .flags = .{ .mutable_format_bit = true, .extended_usage_bit = true },
+            .flags = .{ .mutable_format = true, .extended_usage = true },
         }, null);
 
         self.img_mem = try ctx.allocate(
             ctx.dev.getImageMemoryRequirements(self.image),
             .{
-                .device_local_bit = true,
+                .device_local = true,
             },
         );
 
@@ -105,7 +105,7 @@ pub const Frame = struct {
             },
             .subresource_range = .{
                 .aspect_mask = .{
-                    .plane_0_bit = true,
+                    .plane_0 = true,
                 },
                 .base_mip_level = 0,
                 .level_count = 1,
@@ -126,7 +126,7 @@ pub const Frame = struct {
             },
             .subresource_range = .{
                 .aspect_mask = .{
-                    .plane_1_bit = true,
+                    .plane_1 = true,
                 },
                 .base_mip_level = 0,
                 .level_count = 1,
@@ -147,7 +147,7 @@ pub const Frame = struct {
             },
             .subresource_range = .{
                 .aspect_mask = .{
-                    .plane_2_bit = true,
+                    .plane_2 = true,
                 },
                 .base_mip_level = 0,
                 .level_count = 1,
@@ -168,15 +168,15 @@ pub const Frame = struct {
             .size = self.size,
             .sharing_mode = .exclusive,
             .usage = .{
-                .transfer_dst_bit = true,
+                .transfer_dst = true,
             },
         }, null);
 
         self.buf_mem = try ctx.allocate(
             ctx.dev.getBufferMemoryRequirements(self.buffer),
             .{
-                .host_visible_bit = true,
-                .host_coherent_bit = true,
+                .host_visible = true,
+                .host_coherent = true,
             },
         );
 
@@ -194,7 +194,7 @@ pub const Frame = struct {
         try ctx.dev.resetFences(&[_]vk.Fence{self.fence});
 
         try ctx.dev.beginCommandBuffer(self.cmdbuf, &.{
-            .flags = .{ .one_time_submit_bit = true },
+            .flags = .{ .one_time_submit = true },
         });
 
         PushConstants.updateConstants(pc, ctx, self.cmdbuf, pipeline.pipeline_layout, cam_point);
@@ -219,11 +219,11 @@ pub const Frame = struct {
             .old_layout = .undefined,
             .new_layout = .general,
             .src_access_mask = .{},
-            .dst_access_mask = .{ .shader_write_bit = true },
+            .dst_access_mask = .{ .shader_write = true },
             .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
             .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
             .subresource_range = .{
-                .aspect_mask = .{ .color_bit = true },
+                .aspect_mask = .{ .color = true },
                 .base_mip_level = 0,
                 .level_count = 1,
                 .base_array_layer = 0,
@@ -233,8 +233,8 @@ pub const Frame = struct {
 
         ctx.dev.cmdPipelineBarrier(
             self.cmdbuf,
-            .{ .top_of_pipe_bit = true },
-            .{ .compute_shader_bit = true },
+            .{ .top_of_pipe = true },
+            .{ .compute_shader = true },
             .{},
             &.{},
             &.{},
@@ -268,12 +268,12 @@ pub const Frame = struct {
             .image = self.image,
             .old_layout = .general,
             .new_layout = .transfer_src_optimal,
-            .src_access_mask = .{ .shader_write_bit = true },
-            .dst_access_mask = .{ .transfer_read_bit = true },
+            .src_access_mask = .{ .shader_write = true },
+            .dst_access_mask = .{ .transfer_read = true },
             .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
             .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
             .subresource_range = .{
-                .aspect_mask = .{ .color_bit = true },
+                .aspect_mask = .{ .color = true },
                 .base_mip_level = 0,
                 .level_count = 1,
                 .base_array_layer = 0,
@@ -283,8 +283,8 @@ pub const Frame = struct {
 
         ctx.dev.cmdPipelineBarrier(
             self.cmdbuf,
-            .{ .compute_shader_bit = true },
-            .{ .transfer_bit = true },
+            .{ .compute_shader = true },
+            .{ .transfer = true },
             .{},
             &.{},
             &.{},
@@ -301,7 +301,7 @@ pub const Frame = struct {
                 .buffer_row_length = 0,
                 .buffer_image_height = 0,
                 .image_subresource = .{
-                    .aspect_mask = .{ .plane_0_bit = true },
+                    .aspect_mask = .{ .plane_0 = true },
                     .mip_level = 0,
                     .base_array_layer = 0,
                     .layer_count = 1,
@@ -314,7 +314,7 @@ pub const Frame = struct {
                 .buffer_row_length = 0,
                 .buffer_image_height = 0,
                 .image_subresource = .{
-                    .aspect_mask = .{ .plane_1_bit = true },
+                    .aspect_mask = .{ .plane_1 = true },
                     .mip_level = 0,
                     .base_array_layer = 0,
                     .layer_count = 1,
@@ -327,7 +327,7 @@ pub const Frame = struct {
                 .buffer_row_length = 0,
                 .buffer_image_height = 0,
                 .image_subresource = .{
-                    .aspect_mask = .{ .plane_2_bit = true },
+                    .aspect_mask = .{ .plane_2 = true },
                     .mip_level = 0,
                     .base_array_layer = 0,
                     .layer_count = 1,
@@ -349,16 +349,16 @@ pub const Frame = struct {
             .size = vk.WHOLE_SIZE,
             .offset = 0,
             .buffer = self.buffer,
-            .src_access_mask = .{ .transfer_write_bit = true },
-            .dst_access_mask = .{ .host_read_bit = true },
+            .src_access_mask = .{ .transfer_write = true },
+            .dst_access_mask = .{ .host_read = true },
             .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
             .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
         };
 
         ctx.dev.cmdPipelineBarrier(
             self.cmdbuf,
-            .{ .transfer_bit = true },
-            .{ .host_bit = true },
+            .{ .transfer = true },
+            .{ .host = true },
             .{},
             &.{},
             &.{barrier_to_host},
