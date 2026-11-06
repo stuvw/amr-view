@@ -8,7 +8,7 @@ const Math = @import("./math.zig");
 pub fn getParser(allocator: std.mem.Allocator) !args.ArgumentParser {
     return try args.ArgumentParser.init(allocator, .{
         .name = "amr-view",
-        .version = "0.5.0",
+        .version = "0.5.1",
         .description = "A Zig and Vulkan based AMR dataset visualizer.",
     });
 }
