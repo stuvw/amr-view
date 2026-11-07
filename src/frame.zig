@@ -2,6 +2,7 @@ const std = @import("std");
 const vk = @import("vulkan");
 const Context = @import("./context.zig").Context;
 const ComputePipeline = @import("./pipeline.zig").ComputePipeline;
+const Colormap = @import("./colormap.zig").Colormap;
 const PushConstants = @import("./push_constants.zig");
 
 pub const Frame = struct {
@@ -29,8 +30,7 @@ pub const Frame = struct {
         width: usize,
         height: usize,
         pipeline: ComputePipeline,
-        cmap_sampler: vk.Sampler,
-        cmap_image: vk.ImageView,
+        colormap: Colormap,
         chunk_ptrs: vk.Buffer,
     ) !void {
         self.width = width;
@@ -46,8 +46,8 @@ pub const Frame = struct {
             self.img_view_y,
             self.img_view_u,
             self.img_view_v,
-            cmap_sampler,
-            cmap_image,
+            colormap.sampler,
+            colormap.image_view,
             chunk_ptrs,
         );
         self.fence = try ctx.dev.createFence(&.{ .flags = .{ .signaled = true } }, null);

@@ -42,8 +42,9 @@ python3 create_colormap.py --colormap inferno --output inferno.cmap
 
 | Argument | Default | Description |
 | -------- | ------- | ----------- |
-| --data-file | *required* | Input SVO file |
-| --path-file | *required* | Input camera path file |
+| --colormap | *required* | Matplotlib colormap that will be sampled |
+| --output | *required* | Output colormap file |
+| --size | 256 | Size of the output colormap |
 
 ## `create_cutout_svo.py`
 

@@ -5,7 +5,6 @@ const ComputePipeline = @import("./pipeline.zig").ComputePipeline;
 const Frame = @import("./frame.zig").Frame;
 const Colormap = @import("./colormap.zig").Colormap;
 const Args = @import("./args.zig");
-const Sampler = @import("./sampler.zig");
 const PushConstants = @import("./push_constants.zig");
 const SVO = @import("./svo.zig");
 const Video = @import("./video.zig");
@@ -13,7 +12,6 @@ const Path = @import("./path.zig");
 
 pub fn main(init: std.process.Init) !void {
     const io = init.io;
-
     const allocator = init.gpa;
 
     // ------------------ Arguments / Constants -------------------
@@ -39,11 +37,8 @@ pub fn main(init: std.process.Init) !void {
     // ------------------------- Colormap -------------------------
 
     var cmap: Colormap = undefined;
-    try cmap.create(&ctx, 256);
+    try cmap.create(&ctx, args.cmap_file, io);
     defer cmap.destroy(&ctx);
-
-    const nearest_sampler = try Sampler.create(&ctx);
-    defer Sampler.destroy(&ctx, nearest_sampler);
 
     // ------------------- Sparse Voxel Octree --------------------
 
@@ -72,8 +67,7 @@ pub fn main(init: std.process.Init) !void {
             args.frame_width,
             args.frame_height,
             pipeline,
-            nearest_sampler,
-            cmap.image_view,
+            cmap,
             svo.chunk_ptrs,
         );
     }
@@ -91,7 +85,7 @@ pub fn main(init: std.process.Init) !void {
 
         try svo.upload(&ctx, command_buffer, io, args.data_file, metadata.header_size);
 
-        try cmap.upload(&ctx, command_buffer, io, args.cmap_file);
+        try cmap.upload(&ctx, command_buffer, io);
     }
 
     // ---------------------- Push Constants ----------------------

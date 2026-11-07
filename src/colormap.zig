@@ -1,4 +1,5 @@
 const std = @import("std");
+const Io = std.Io;
 const vk = @import("vulkan");
 const Context = @import("./context.zig").Context;
 
@@ -6,20 +7,48 @@ pub const Colormap = struct {
     image: vk.Image,
     image_view: vk.ImageView,
     image_mem: vk.DeviceMemory,
+    sampler: vk.Sampler,
 
     size: usize,
+    size_bytes: usize,
+
+    filename: []const u8,
 
     pub fn create(
         self: *@This(),
         ctx: *const Context,
-        size: usize,
+        filename: []const u8,
+        io: Io,
     ) !void {
-        self.size = size * 4; // RGBA -> 4B/p
+        self.filename = filename;
 
+        try self.getSize(io);
+        try self.createImage(ctx);
+        try self.createImageView(ctx);
+        try self.createSampler(ctx);
+    }
+
+    fn getSize(self: *@This(), io: Io) !void {
+        const cwd = Io.Dir.cwd();
+
+        const file = try cwd.openFile(io, self.filename, .{ .mode = .read_only });
+        defer file.close(io);
+
+        const stat = try file.stat(io);
+        if (stat.size % 4 != 0) {
+            std.log.err("file {s} has non multiple of 4 size {d}", .{ self.filename, stat.size });
+            return error.InvalidFormat;
+        }
+
+        self.size = stat.size / 4; // RGBA -> 4B/p
+        self.size_bytes = stat.size;
+    }
+
+    fn createImage(self: *@This(), ctx: *const Context) !void {
         self.image = try ctx.dev.createImage(&.{
             .image_type = .@"2d",
             .format = .r8g8b8a8_unorm,
-            .extent = vk.Extent3D{ .width = @intCast(size), .height = 1, .depth = 1 },
+            .extent = vk.Extent3D{ .width = @intCast(self.size), .height = 1, .depth = 1 },
             .mip_levels = 1,
             .array_layers = 1,
             .samples = .{ .@"1" = true },
@@ -28,16 +57,24 @@ pub const Colormap = struct {
             .sharing_mode = .exclusive,
             .initial_layout = .undefined,
         }, null);
-
-        const mem_reqs = ctx.dev.getImageMemoryRequirements(self.image);
-        self.image_mem = try ctx.allocate(mem_reqs, .{ .device_local = true });
+        self.image_mem = try ctx.allocate(
+            ctx.dev.getImageMemoryRequirements(self.image),
+            .{ .device_local = true },
+        );
         try ctx.dev.bindImageMemory(self.image, self.image_mem, 0);
+    }
 
+    fn createImageView(self: *@This(), ctx: *const Context) !void {
         self.image_view = try ctx.dev.createImageView(&.{
             .image = self.image,
             .view_type = .@"2d",
             .format = .r8g8b8a8_unorm,
-            .components = .{ .r = .identity, .g = .identity, .b = .identity, .a = .identity },
+            .components = .{
+                .r = .identity,
+                .g = .identity,
+                .b = .identity,
+                .a = .identity,
+            },
             .subresource_range = .{
                 .aspect_mask = .{ .color = true },
                 .base_mip_level = 0,
@@ -48,17 +85,50 @@ pub const Colormap = struct {
         }, null);
     }
 
+    fn createSampler(self: *@This(), ctx: *const Context) !void {
+        self.sampler = try ctx.dev.createSampler(&.{
+            .mag_filter = .nearest,
+            .min_filter = .nearest,
+            .mipmap_mode = .nearest,
+            .address_mode_u = .clamp_to_edge,
+            .address_mode_v = .clamp_to_edge,
+            .address_mode_w = .clamp_to_edge,
+            .mip_lod_bias = 0.0,
+            .anisotropy_enable = .false,
+            .max_anisotropy = 1.0,
+            .compare_enable = .false,
+            .compare_op = .always,
+            .min_lod = 0.0,
+            .max_lod = 1.0,
+            .border_color = .float_opaque_black,
+            .unnormalized_coordinates = .false,
+        }, null);
+    }
+
     pub fn destroy(self: *@This(), ctx: *const Context) void {
-        ctx.dev.destroyImageView(self.image_view, null);
+        self.destroySampler(ctx);
+        self.destroyImageView(ctx);
+        self.destroyImage(ctx);
+    }
+
+    fn destroyImage(self: *const @This(), ctx: *const Context) void {
         ctx.dev.freeMemory(self.image_mem, null);
         ctx.dev.destroyImage(self.image, null);
     }
 
-    pub fn upload(self: *@This(), ctx: *const Context, cmdbuf: vk.CommandBuffer, io: std.Io, filename: []const u8) !void {
+    fn destroyImageView(self: *const @This(), ctx: *const Context) void {
+        ctx.dev.destroyImageView(self.image_view, null);
+    }
+
+    fn destroySampler(self: *const @This(), ctx: *const Context) void {
+        ctx.dev.destroySampler(self.sampler, null);
+    }
+
+    pub fn upload(self: *@This(), ctx: *const Context, cmdbuf: vk.CommandBuffer, io: std.Io) !void {
         try ctx.dev.beginCommandBuffer(cmdbuf, &.{ .flags = .{ .one_time_submit = true } });
 
         const staging_buffer = try ctx.dev.createBuffer(&.{
-            .size = self.size,
+            .size = self.size_bytes,
             .usage = .{ .transfer_src = true },
             .sharing_mode = .exclusive,
         }, null);
@@ -74,11 +144,11 @@ pub const Colormap = struct {
         defer ctx.dev.freeMemory(mem, null);
 
         try ctx.dev.bindBufferMemory(staging_buffer, mem, 0);
-        const staging_ptr = try ctx.dev.mapMemory(mem, 0, self.size, .{});
+        const staging_ptr = try ctx.dev.mapMemory(mem, 0, self.size_bytes, .{});
         defer ctx.dev.unmapMemory(mem);
         const staging_slice = @as([*]u8, @ptrCast(staging_ptr));
 
-        try loadColormapFile(io, filename, self.size, staging_slice);
+        try loadColormapFile(io, self.filename, self.size_bytes, staging_slice);
 
         self.prepareForCopy(ctx, cmdbuf);
         self.copyToImage(ctx, cmdbuf, staging_buffer);
@@ -138,7 +208,7 @@ pub const Colormap = struct {
                 .layer_count = 1,
             },
             .image_offset = .{ .x = 0, .y = 0, .z = 0 },
-            .image_extent = vk.Extent3D{ .width = @intCast(self.size / 4), .height = 1, .depth = 1 },
+            .image_extent = vk.Extent3D{ .width = @intCast(self.size), .height = 1, .depth = 1 },
         };
         ctx.dev.cmdCopyBufferToImage(
             cmdbuf,

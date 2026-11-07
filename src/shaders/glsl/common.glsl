@@ -12,7 +12,7 @@ layout(r8, set = 0, binding = 0) writeonly uniform image2D Y_plane;
 layout(r8, set = 0, binding = 1) writeonly uniform image2D U_plane;
 layout(r8, set = 0, binding = 2) writeonly uniform image2D V_plane;
 
-layout(set = 0, binding = 3) uniform sampler2D colormap_tex;
+layout(set = 0, binding = 3) uniform sampler2D colormap;
 
 layout(std430, set = 0, binding = 4) readonly buffer chunks {
   uint64_t chunk_ptrs[];
@@ -117,7 +117,7 @@ vec3 map_color(vec2 accum) {
     float color_t = (depth - min_val) / (max_val - min_val);
 
     // Sample colormap texture
-    vec4 color = texture(colormap_tex, vec2(clamp(color_t, 0.0, 1.0), 0.5));
+    vec4 color = texture(colormap, vec2(clamp(color_t, 0.0, 1.0), 0.5));
 
     // Apply underflow and overflow colors
     color = mix(under_color, color, step(0.0, color_t));
